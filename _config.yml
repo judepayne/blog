@@ -19,7 +19,7 @@ google-analytics:
 
 # Disqus
 disqus:
-  id:               "judepayne402@gmail.com"
+  id:               "disqus_c3tikh7C04"
 
 # URL
 #url:                "https://judepayne.github.io/blog" # the base hostname & protocol for your site
@@ -49,7 +49,7 @@ nav:
   - name:           "Tags"
     url:            "/tags"
   - name:           "Github"
-    url:            "https://github.com/AWEEKJ/Kiko-plus"
+    url:            "https://github.com/judepayne/"
 
 
 
