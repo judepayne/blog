@@ -1,0 +1,842 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+	<channel>
+		<title>Jude's functional blog</title>
+		<link>http://localhost:4000/blog</link>
+		<atom:link href="http://localhost:4000/blog/feed.xml" rel="self" type="application/rss+xml" />
+		
+			<item>
+				<title>Introduction to stream processors</title>
+				<description>&lt;p&gt;Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it’s quite likely that in a few years time ‘Stream Processors’ will be as well understood a class of application as ‘Database’ or ‘Web Server’; this is not the case today. In this article, I’ll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing.&lt;!--more--&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;a-toy-stream-processor&quot;&gt;A toy stream processor&lt;/h2&gt;
+
+&lt;p&gt;To illustrate what a stream processor is, let’s build a very basic example. Although basic, it will have nearly all the same parts as it’s production grade counterpart like Apache Spark, Apache Samza or Axiom. We’ll use Clojure, a functional lisp for the JVM as it’s very efficient to get stuff done in. As we’ll expand upon later, one of the foundational idioms in functional programming language is processing streams, or rather collections; Functional languages are a great fit for constructing stream processors.&lt;/p&gt;
+
+&lt;p&gt;Stream processors listen to one or more streams of data that might be provided from message buses, web sockets or even database pollers. Our example will come from the world of Finance and will listen to stream of ‘Orders’ and ‘Executions’ and produce ‘Trades’ from them. The first job is to mock up a couple of streams of data…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;ns&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream-processor.part1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+    
+    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;defn&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;lazy-seq&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;cons&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+            &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1000&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;inc&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;rand-int&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+             &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;'order&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+             &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;'red&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;'yellow&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;'blue&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;rand-int&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+            &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;First we declare a namespace of our stream processor’s code to sit in. The &lt;code class=&quot;highlighter-rouge&quot;&gt;order-fountain&lt;/code&gt; function produces a endless stream of randomised orders. Each order is a Clojure hashmap with keys :comp-id (an identifier), :type and :ord-attr which contains the actual attributes associated with the order (“red”, “yellow” or “blue” in our toy stream processor app). The way the function works is to produce a random order and ‘&lt;code class=&quot;highlighter-rouge&quot;&gt;cons&lt;/code&gt;’ it onto another call to itself. That is then wrapped in a &lt;code class=&quot;highlighter-rouge&quot;&gt;lazy-seq&lt;/code&gt; to make it lazy and not immediately process forever when called; only those items that are asked for will be processed.&lt;/p&gt;
+
+&lt;p&gt;We can use it like this;&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;take&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;results in table form:&lt;/p&gt;
+
+&lt;div class=&quot;table-wrapper&quot;&gt;
+&lt;table&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1003&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;yellow&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;blue&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1008&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;blue&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;We get a sequence of five orders from our fountain with randomised elements. Let’s build something a similar sequence of executions…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;defn&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;execution-fountain&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;lazy-seq&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+        &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;cons&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+          &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1000&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;inc&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;rand-int&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;7&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+           &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;'execution&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+           &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;([&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:x&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:y&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:z&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;rand-int&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+          &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;execution-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;Now let’s combine those two streams into one as follows and check the output when we take the first few items off the resulting stream…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;take&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;interleave&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;execution-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;div class=&quot;table-wrapper&quot;&gt;
+&lt;table&gt;
+&lt;colgroup&gt;
+&lt;col class=&quot;org-left&quot; /&gt;
+&lt;col class=&quot;org-right&quot; /&gt;
+&lt;col class=&quot;org-left&quot; /&gt;
+&lt;col class=&quot;org-left&quot; /&gt;
+&lt;col class=&quot;org-left&quot; /&gt;
+&lt;col class=&quot;org-left&quot; /&gt;
+&lt;/colgroup&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1006&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;blue&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1002&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;execution&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:z&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;blue&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1005&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;execution&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1003&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;execution&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:z&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1007&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1006&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;execution&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:x&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1008&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;order&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;yellow&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1002&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;execution&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:x&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;-&amp;gt;&lt;/code&gt; is the threading macro - it sequences a series of operations.&lt;/p&gt;
+
+&lt;p&gt;As you can see, we get an order then execution then order.. etc. That’s what &lt;code class=&quot;highlighter-rouge&quot;&gt;interleave&lt;/code&gt; does. Good enough for our dummy stream. Both orders and executions have a ‘comp-id’ which is randomised to between 1001 and 1010. That’s what we’ll be joining on - when an order and a trade have the same comp-id, we want to make them into a trade. An execution has an &lt;code class=&quot;highlighter-rouge&quot;&gt;:exec-attr&lt;/code&gt; field rather than an &lt;code class=&quot;highlighter-rouge&quot;&gt;:ord-attr&lt;/code&gt;. It can take values :x, :y or :z.&lt;/p&gt;
+
+&lt;p&gt;A stream processor always has some sort of stateful store. It might be a sql database, a distributed key value store or something else. This components provides state and is also one of the components that provides resilience (We’ll come to the other component needed for resilience later).&lt;/p&gt;
+
+&lt;p&gt;In this example we’ll use the simplest store of all - a hash map. &lt;code class=&quot;highlighter-rouge&quot;&gt;&lt;span class=&quot;p&quot;&gt;{}&lt;/span&gt;&lt;/code&gt; in Clojure.&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stateful-store&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;atom&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{}))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;Clojure, as a functional langugage, tries to operate without explicit state as much as possible, but sometimes you need it. Our hash map store is placed inside an &lt;code class=&quot;highlighter-rouge&quot;&gt;atom&lt;/code&gt; which ensures that any changes made to the hash map are atomic and thread-safe.
+Now let’s get to the main event, the stream processor itself.&lt;/p&gt;
+
+&lt;p&gt;We’ll write a ‘trade maker’ function takes in a stream of data and takes in a join function that is used to join an order and execution with matching comp-id’s (our pivot field). In this case the join function will simply merge the hash map representing the order with that of the stream and set the :type of the result to ‘trade’…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;my-join&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i1&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;assoc&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;merge&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i1&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;i2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;“&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;trade&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;”&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;The logic of the &lt;code class=&quot;highlighter-rouge&quot;&gt;make-trade&lt;/code&gt; function that we need next is simple.&lt;/p&gt;
+
+&lt;p&gt;First we extract the comp-id from the trade or order in hand and check if its counterpart is already in our stateful store.&lt;/p&gt;
+
+&lt;p&gt;If not, then we need to cache the item in hand. If is is, then we apply the join function to the item in hand and the retrieved cached item, thereby joining execution to order or order to execution…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;defn&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;make-trade&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join-fn&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;map&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+       &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+         &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+               &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;other-side&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;get&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;err&quot;&gt;@&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stateful-store&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;comp-id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+           &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;or&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;nil?&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;other-side&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+                   &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;other-side&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+             &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;do&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;swap!&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stateful-store&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;assoc&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+                 &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;str&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;'caching&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;comp-id&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;comp-id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+             &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;not=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;other-side&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+               &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;do&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;swap!&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stateful-store&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;dissoc&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;comp-id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+                   &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;join-fn&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;other-side&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))))))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+       &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;Ok, we’re done!&lt;/p&gt;
+
+&lt;p&gt;Let’s test it out…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;take&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;25&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;interleave&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;execution-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;make-trade&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;my-join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+
+    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1004&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1002&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1005&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1001&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1010&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1005&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;trade&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:x,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;blue&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1010&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1004&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;trade&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:z,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;yellow&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1001&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;trade&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;blue&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1007&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1001&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1001&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;trade&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:x,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;red&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1009&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1007&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1010&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1003&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1001&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1004&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1004&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;trade&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;yellow&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1005&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:comp-id&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1007&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:type&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;trade&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;red&quot;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:exec-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1007&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1001&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching execution comp-id: 1004&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;caching order comp-id: 1009&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;As you can see, the sequence produced is a mix of events where there is no match and the event is cached. When a match occurs, a trade is output with both order attributes and execution attributes.&lt;/p&gt;
+
+&lt;p&gt;Here’s the topology of the toy processor:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://localhost:4000/blog/images/toy1.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;All stream processors arrange their calculations in a topology, or ‘graph’. To describe any topology, we only need four relationships between nodes in the toplogy:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;Combination&lt;/strong&gt;: two of more nodes point at the same node.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;Chain&lt;/strong&gt;: one node points to the next.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;Split&lt;/strong&gt;: a node points at the two or more nodes.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;Many to many&lt;/strong&gt;: multiple incoming and out going nodes.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;There are only four types of computations which can happen at each node. We’ve seen two of these types already.&lt;/p&gt;
+
+&lt;p&gt;Mappers ‘map’ a function over each element in the stream. sources and sinks are special cases of mappers - the endpoints of a topology. The &lt;code class=&quot;highlighter-rouge&quot;&gt;make-trade&lt;/code&gt; function is an example of a mapper. Mappers always occur at a chain node - they are a single step in our topology.&lt;/p&gt;
+
+&lt;p&gt;Combiners combine two or more streams with some logic. The expression &lt;code class=&quot;highlighter-rouge&quot;&gt;interleave (order-fountain) (execution-fountain)&lt;/code&gt; is an example of a combiner. Combiners only occur at combination nodes.&lt;/p&gt;
+
+&lt;p&gt;To illustrate the other two types of computation, we’ll extend the toy a little by making a new function to add to the processing topology:&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;defn&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;filter-colour&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;colour&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+      &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;o&quot;&gt;#&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;colour&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;:ord-attr&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;%&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;Filterers/ patitioners filter or split a stream. The &lt;code class=&quot;highlighter-rouge&quot;&gt;filter-colour&lt;/code&gt; function which filters only those trades which have an &lt;code class=&quot;highlighter-rouge&quot;&gt;:ord-attr&lt;/code&gt; field that matches the supplied colour is an example of a filterer/ partitioner. A filterer/ partitioner can only ever occur at a Split type of the node in the graph. A filterer is actually a special case of a partitioner - it’s a partitioner that only produces one output stream, the filtered out items being directly dropped rather than directed into another stream.&lt;/p&gt;
+
+&lt;p&gt;We can add it into our processing chain like this. Note that this time, 100 items are taken off the fountain.&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;take&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;100&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;interleave&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;execution-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;  
+        &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;make-trade&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;my-join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+        &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;filter-colour&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;red&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;div class=&quot;table-wrapper&quot;&gt;
+&lt;table&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1007&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1003&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:x&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1006&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:x&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1001&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1005&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:x&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1002&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1005&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:z&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1004&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:z&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1007&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:y&lt;/td&gt;
+&lt;/tr&gt;
+
+
+&lt;tr&gt;
+&lt;td class=&quot;org-left&quot;&gt;:comp-id&lt;/td&gt;
+&lt;td class=&quot;org-right&quot;&gt;1006&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:type&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;trade&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:ord-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;red&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:exec-attr&lt;/td&gt;
+&lt;td class=&quot;org-left&quot;&gt;:z&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Reducers. The final type of computation is a reducer, the most powerful type. All of the first three types of computations can be expressed in terms of a reducing function. A reducer takes the first item of the stream, applies the given function it to get a result. It then takes the next item and the previous result, applies the function again to get the next result, and so on… In this way, reducers ‘collect up’ the stream. Average price sliding windows are a good example of a reducer. Reducers can occur at type of node in the toplogy.&lt;/p&gt;
+
+&lt;p&gt;To illustrate reducers, let’s use one of the simplest: &lt;code class=&quot;highlighter-rouge&quot;&gt;count&lt;/code&gt; this time taking 20,000 items off the fountain…&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;&lt;span class=&quot;w&quot;&gt;    &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;take&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20000&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;interleave&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;order-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;execution-fountain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;make-trade&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;n&quot;&gt;my-join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;filter-colour&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;red&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;count&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+
+    &lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1850&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;(note: Every time the above expression is evaluated, we’d get a slightly different result due to the randomisation of orders and executions in the fountain.)&lt;/p&gt;
+
+&lt;p&gt;Here’s the final toplogy of the toy:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://localhost:4000/blog/images/toy2.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;What would be our next steps in making this less toy-like?&lt;/p&gt;
+
+&lt;p&gt;We could change the dummy order and execution-fountain functions to, say, listen to channels on a message bus. None of the other code would need to change.&lt;/p&gt;
+
+&lt;p&gt;The stateful store provides one half of the resilience story for the system. We could replace the hashmap with, say, a replicated Key-Value store and our system is more resilient.&lt;/p&gt;
+
+&lt;p&gt;The output stream of trades rather than being printed out would go somewhere; e.g. to a database or into another channel of a message bus.&lt;/p&gt;
+
+&lt;p&gt;Wrap all functions into higher order functions to provide consistent logging + error handling etc.&lt;/p&gt;
+
+&lt;p&gt;Provide the other half of the resilience story, &lt;strong&gt;the event log&lt;/strong&gt;. Every event coming into the processor must immediately be logged so that the processor can recover its state later if it crashes with it is half way through processing an event through it’s topology.&lt;/p&gt;
+
+&lt;p&gt;Finally, we’ve made one giant simplification in our toy processor which is that there are no branches in the processing logic. In the example, we used a filter operation but not a full-blown partition operation. Having two branches of processing would have forced us to examine whether we want to be able to process multiple events through the graph concurrent, imagining each of the processing steps as nodes with asynchronous communication between them. Such a set allows for greater efficiency but brings further complexity into play when thinking about resilience. Rather than a processor that processes events one at a time and has either processed a particular event or it hasn’t, we could have multiple events at various stages of processing inside our graph. Saying exactly what the state of that graph is in the event of failure so that we can resume later becomes much harder. A topic of a future blog.&lt;/p&gt;
+
+&lt;h2 id=&quot;production-grade-stream-processors&quot;&gt;Production grade stream processors&lt;/h2&gt;
+
+&lt;p&gt;With this understanding of the basic generalities of a stream processor, we can see that there are stream processors and stream processor use cases all around.&lt;/p&gt;
+
+&lt;p&gt;Where we need to process a sequence of events, we’re effectively building a stream processor application. Stream processing is sometimes mistakenly conflated with the need to process big data in stream, but smaller scale stream processor use cases are just as valid.&lt;/p&gt;
+
+&lt;p&gt;Production grade stream processors fall into two camps: distributed or non-distributed.&lt;/p&gt;
+
+&lt;p&gt;Distributed stream processors are a hot area of technology right now and are seen as companion-successors to Hadoop for large scale data processing. Hadoop for massive offline batch processing and stream processors for immediate/ ‘less deep’ processing on the incoming stream of data with output of the two combining in a very large data store with both deep and immediate data (analytics) in it. This is known as a ‘Lambda architecture’, while the streaming part of it on its own a ‘Kappa architecture’&lt;/p&gt;
+
+&lt;p&gt;In my experience, non-distributed stream processors are rarely called as such - rather people often talk about certain patterns (e.g. ‘event sourcing’) or CEP ‘complex event processing’. As mentioned earlier, when the topology of the graph you need becomes complex enough that asychronous communication between the (processing) nodes is required, failure recovery is a challenge unless it’s ok to lose a certain amount of data as for example is certain analytics use cases. Therefore, in order to take that complexity away from the developer who wishes to focus on the task in hand, there is definitely a role for small scale stream processing frameworks.&lt;/p&gt;
+
+&lt;p&gt;Building a distributed stream processor is considerably harder than a non. Difficult scenarios like node failure during processing an event, another node taking over processing the event and then the first node coming back up and this time successfully processing the event - with duplicating the output - have to be solved for. The major distriubted stream processors are all therefore large Apache projects with hundreds of committers each. The major ones are: Apache Spark, Apache Storm, Apache Flink and Apache Samza.&lt;/p&gt;
+
+&lt;p&gt;These distributed stream processors are all basically fairly similar in their main concepts but make slightly different choices about whether they process one event at a time (Storm, Flink and Samza) or in micro-batches (Spark), whether they guarantee to process an event exactly once or at least once, what types of resilient stores they offer.. etc.&lt;/p&gt;
+
+&lt;p&gt;Let’s have a brief look at Apache Spark, the most popular of the big four, to see what kinds of advantages it offers over a home grown framework.&lt;/p&gt;
+
+&lt;p&gt;The first area of advantage is clearly scale. Spark is a medium latency, high throughput framework that scales pretty much linearly with the number of nodes added. Spark runs in an all-active cluster which can span over datacentres. If nodes/ a data centre is suddenly unavilable, processing will continue albeit probably more slowly until full capacity is restored. The benefit of scale is that a Spark cluster can run many topologies at once; freeing up multiple teams with similar stream processing needs to focus more on their business logic rather than the non functionals.&lt;/p&gt;
+
+&lt;p&gt;The second area where Spark or the other mature stream processor frameworks really shines over home grown frameworks is convenience. This point is probably at least as important as the first.&lt;/p&gt;
+
+&lt;p&gt;To define a processing topology in Spark, you would:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;Define the toplogy of the graph (a list of nodes and their relationships).&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Define the type of each node: mapper, partitioner, etc.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Define the business logic that runs in each node.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;By working with the general concepts and having all the scaffolding done for you, new computations are quick to define.&lt;/p&gt;
+
+&lt;p&gt;Spark’s resilient store is called ‘RDD’ which stands for ‘Resilient Distributed Dataset(s)’. These are effectively like relational database tables and the developer works with them in Java or Scala code which is very like SQL, helping transition.&lt;/p&gt;
+
+&lt;p&gt;Finally, on convenience, Spark offers a wide range of end-points out of the box. It can connect to JMS queues, has database pollers, file watchers, RMDB sysnchronisers etc - which strip out a lot of the ‘plumbing in’ type work.&lt;/p&gt;
+
+&lt;p&gt;I hope that served is a useful introduction to basics of stream processors and current state of the market. It’s an exciting and relatively new area which can have a number of important applications in any organisation that deals with a lot of live data. By recognising stream processing use cases, it’s easier to think of applications which might be performing very different business logic as being essentially the same as each other.&lt;/p&gt;
+</description>
+				<pubDate>Thu, 08 Dec 2016 21:46:04 +0000</pubDate>
+				<link>http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/</link>
+				<guid isPermaLink="true">http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/</guid>
+			</item>
+		
+			<item>
+				<title>A Full and Comprehensive Style Test</title>
+				<description>&lt;p&gt;Below is just about everything you’ll need to style in the theme. Check the source code to see the many embedded elements within paragraphs.&lt;/p&gt;
+
+&lt;h1 id=&quot;body-text&quot;&gt;Body text&lt;/h1&gt;
+
+&lt;hr /&gt;
+
+&lt;h1 id=&quot;heading-1&quot;&gt;Heading 1&lt;/h1&gt;
+
+&lt;h2 id=&quot;heading-2&quot;&gt;Heading 2&lt;/h2&gt;
+
+&lt;h3 id=&quot;heading-3&quot;&gt;Heading 3&lt;/h3&gt;
+
+&lt;h4 id=&quot;heading-4&quot;&gt;Heading 4&lt;/h4&gt;
+
+&lt;h5 id=&quot;heading-5&quot;&gt;Heading 5&lt;/h5&gt;
+
+&lt;h6 id=&quot;heading-6&quot;&gt;Heading 6&lt;/h6&gt;
+
+&lt;p&gt;Lorem ipsum dolor sit amet, &lt;a href=&quot;#&quot;&gt;test link&lt;/a&gt; adipiscing elit. &lt;strong&gt;This is strong.&lt;/strong&gt; Nullam dignissim convallis est. Quisque aliquam. &lt;em&gt;This is emphasized.&lt;/em&gt; Donec faucibus. Nunc iaculis suscipit dui. 5&lt;sup&gt;3&lt;/sup&gt; = 125. Water is H&lt;sub&gt;2&lt;/sub&gt;O. Nam sit amet sem. Aliquam libero nisi, imperdiet at, tincidunt nec, gravida vehicula, nisl. &lt;u&gt;Underline&lt;/u&gt;. Maecenas ornare tortor. Donec sed tellus eget &lt;code class=&quot;highlighter-rouge&quot;&gt;COPY filename&lt;/code&gt; sapien fringilla nonummy. Mauris a ante. Suspendisse quam sem, consequat at, &lt;del&gt;Dinner’s at 5:00.&lt;/del&gt; commodo vitae, feugiat in, nunc. Morbi imperdiet augue &lt;mark&gt;mark element&lt;/mark&gt; quis tellus.&lt;/p&gt;
+
+&lt;h1 id=&quot;images&quot;&gt;Images&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&quot;http://placehold.it/800x400&quot; alt=&quot;Large example image&quot; title=&quot;Large example image&quot; /&gt;
+&lt;img src=&quot;http://placehold.it/400x200&quot; alt=&quot;Medium example image&quot; title=&quot;Medium example image&quot; /&gt;
+&lt;img src=&quot;http://placehold.it/200x200&quot; alt=&quot;Small example image&quot; title=&quot;Small example image&quot; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&quot;blockquotes&quot;&gt;Blockquotes&lt;/h1&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Lorem ipsum dolor sit amet, test link adipiscing elit. Nullam dignissim convallis est. Quisque aliquam.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h1 id=&quot;list-types&quot;&gt;List Types&lt;/h1&gt;
+
+&lt;h3 id=&quot;ordered-lists&quot;&gt;Ordered Lists&lt;/h3&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;Item one
+    &lt;ol&gt;
+      &lt;li&gt;sub item one&lt;/li&gt;
+      &lt;li&gt;sub item two&lt;/li&gt;
+      &lt;li&gt;sub item three&lt;/li&gt;
+    &lt;/ol&gt;
+  &lt;/li&gt;
+  &lt;li&gt;Item two&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;unordered-lists&quot;&gt;Unordered Lists&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Item one
+    &lt;ul&gt;
+      &lt;li&gt;sub item one&lt;/li&gt;
+      &lt;li&gt;sub item two&lt;/li&gt;
+      &lt;li&gt;sub item three&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;Item two&lt;/li&gt;
+  &lt;li&gt;Item three&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;definition-lists&quot;&gt;Definition Lists&lt;/h3&gt;
+
+&lt;dl&gt;
+  &lt;dt&gt;kramdown&lt;/dt&gt;
+  &lt;dd&gt;A Markdown-superset converter&lt;/dd&gt;
+  &lt;dt&gt;Maruku&lt;/dt&gt;
+  &lt;dd&gt;Another Markdown-superset converter&lt;/dd&gt;
+&lt;/dl&gt;
+
+&lt;h1 id=&quot;tables&quot;&gt;Tables&lt;/h1&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th style=&quot;text-align: left&quot;&gt;Header1&lt;/th&gt;
+      &lt;th style=&quot;text-align: center&quot;&gt;Header2&lt;/th&gt;
+      &lt;th style=&quot;text-align: right&quot;&gt;Header3&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td style=&quot;text-align: left&quot;&gt;cell1&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;cell2&lt;/td&gt;
+      &lt;td style=&quot;text-align: right&quot;&gt;cell3&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td style=&quot;text-align: left&quot;&gt;cell4&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;cell5&lt;/td&gt;
+      &lt;td style=&quot;text-align: right&quot;&gt;cell6&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td style=&quot;text-align: left&quot;&gt;cell1&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;cell2&lt;/td&gt;
+      &lt;td style=&quot;text-align: right&quot;&gt;cell3&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td style=&quot;text-align: left&quot;&gt;cell4&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;cell5&lt;/td&gt;
+      &lt;td style=&quot;text-align: right&quot;&gt;cell6&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+  &lt;tfoot&gt;
+    &lt;tr&gt;
+      &lt;td style=&quot;text-align: left&quot;&gt;Foot1&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;Foot2&lt;/td&gt;
+      &lt;td style=&quot;text-align: right&quot;&gt;Foot3&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tfoot&gt;
+&lt;/table&gt;
+
+&lt;h1 id=&quot;code-snippets&quot;&gt;Code Snippets&lt;/h1&gt;
+
+&lt;p&gt;Syntax highlighting via Rouge&lt;/p&gt;
+
+&lt;div class=&quot;language-css highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nf&quot;&gt;#container&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nl&quot;&gt;float&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;left&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;nl&quot;&gt;margin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;-240px&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;nl&quot;&gt;width&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;100%&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;Non Pygments code example&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&amp;lt;div id=&quot;awesome&quot;&amp;gt;
+    &amp;lt;p&amp;gt;This is great isn't it?&amp;lt;/p&amp;gt;
+&amp;lt;/div&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+</description>
+				<pubDate>Mon, 15 Aug 2016 00:00:00 +0100</pubDate>
+				<link>http://localhost:4000/blog/2016-08-15/style-test/</link>
+				<guid isPermaLink="true">http://localhost:4000/blog/2016-08-15/style-test/</guid>
+			</item>
+		
+			<item>
+				<title>Syntax Highlighting Post</title>
+				<description>&lt;p&gt;Syntax highlighting is a feature that displays source code, in different colors and fonts according to the category of terms. This feature facilitates writing in a structured language such as a programming language or a markup language as both structures and syntax errors are visually distinct. Highlighting does not affect the meaning of the text itself; it is intended only for human readers.&lt;sup id=&quot;fnref:1&quot;&gt;&lt;a href=&quot;#fn:1&quot; class=&quot;footnote&quot;&gt;1&lt;/a&gt;&lt;/sup&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;highlighted-code-blocks&quot;&gt;Highlighted Code Blocks&lt;/h3&gt;
+
+&lt;p&gt;To modify styling and highlight colors edit &lt;code class=&quot;highlighter-rouge&quot;&gt;/_sass/_highlighter.scss&lt;/code&gt;.&lt;/p&gt;
+
+&lt;div class=&quot;language-css highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nf&quot;&gt;#container&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nl&quot;&gt;float&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;left&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;nl&quot;&gt;margin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;-240px&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;nl&quot;&gt;width&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;m&quot;&gt;100%&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;language-html highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nt&quot;&gt;&amp;lt;nav&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;pagination&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;role=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;navigation&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+    {% if page.previous %}
+        &lt;span class=&quot;nt&quot;&gt;&amp;lt;a&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;href=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;{{ site.url }}{{ page.previous.url }}&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;btn&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;title=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;{{ page.previous.title }}&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;Previous article&lt;span class=&quot;nt&quot;&gt;&amp;lt;/a&amp;gt;&lt;/span&gt;
+    {% endif %}
+    {% if page.next %}
+        &lt;span class=&quot;nt&quot;&gt;&amp;lt;a&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;href=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;{{ site.url }}{{ page.next.url }}&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;btn&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;title=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;{{ page.next.title }}&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;Next article&lt;span class=&quot;nt&quot;&gt;&amp;lt;/a&amp;gt;&lt;/span&gt;
+    {% endif %}
+&lt;span class=&quot;nt&quot;&gt;&amp;lt;/nav&amp;gt;&lt;/span&gt;&lt;span class=&quot;c&quot;&gt;&amp;lt;!-- /.pagination --&amp;gt;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;language-ruby highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;module&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Jekyll&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;TagIndex&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Page&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;initialize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;base&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@site&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;site&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@base&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;base&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@dir&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'index.html'&lt;/span&gt;
+      &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;process&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;vi&quot;&gt;@name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;read_yaml&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;base&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'_layouts'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'tag_index.html'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'tag'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tag&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;tag_title_prefix&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;config&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'tag_title_prefix'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;||&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'Tagged: '&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;tag_title_suffix&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;config&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'tag_title_suffix'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;||&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&amp;amp;#8211;'&lt;/span&gt;
+      &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'title'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;#{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;tag_title_prefix&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}#{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;
+      &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;'description'&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;An archive of posts tagged &lt;/span&gt;&lt;span class=&quot;si&quot;&gt;#{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;.&quot;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;standard-code-block&quot;&gt;Standard Code Block&lt;/h3&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&amp;lt;nav class=&quot;pagination&quot; role=&quot;navigation&quot;&amp;gt;
+    {% if page.previous %}
+        &amp;lt;a href=&quot;{{ site.url }}{{ page.previous.url }}&quot; class=&quot;btn&quot; title=&quot;{{ page.previous.title }}&quot;&amp;gt;Previous article&amp;lt;/a&amp;gt;
+    {% endif %}
+    {% if page.next %}
+        &amp;lt;a href=&quot;{{ site.url }}{{ page.next.url }}&quot; class=&quot;btn&quot; title=&quot;{{ page.next.title }}&quot;&amp;gt;Next article&amp;lt;/a&amp;gt;
+    {% endif %}
+&amp;lt;/nav&amp;gt;&amp;lt;!-- /.pagination --&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h3 id=&quot;github-gist-embed&quot;&gt;GitHub Gist Embed&lt;/h3&gt;
+
+&lt;p&gt;An example of a Gist embed below.&lt;/p&gt;
+
+&lt;script src=&quot;https://gist.github.com/mmistakes/43a355923921d22cd993.js&quot;&gt;&lt;/script&gt;
+
+&lt;div class=&quot;footnotes&quot;&gt;
+  &lt;ol&gt;
+    &lt;li id=&quot;fn:1&quot;&gt;
+      &lt;p&gt;&lt;a href=&quot;http://en.wikipedia.org/wiki/Syntax_highlighting&quot;&gt;http://en.wikipedia.org/wiki/Syntax_highlighting&lt;/a&gt; &lt;a href=&quot;#fnref:1&quot; class=&quot;reversefootnote&quot;&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+    &lt;/li&gt;
+  &lt;/ol&gt;
+&lt;/div&gt;
+</description>
+				<pubDate>Fri, 16 Aug 2013 00:00:00 +0100</pubDate>
+				<link>http://localhost:4000/blog/2013-08-16/code-highlighting-post/</link>
+				<guid isPermaLink="true">http://localhost:4000/blog/2013-08-16/code-highlighting-post/</guid>
+			</item>
+		
+			<item>
+				<title>Sample Link Post</title>
+				<description>
+</description>
+				<pubDate>Mon, 12 Aug 2013 00:00:00 +0100</pubDate>
+				<link>http://localhost:4000/blog/2013-08-12/sample-link-post/</link>
+				<guid isPermaLink="true">http://localhost:4000/blog/2013-08-12/sample-link-post/</guid>
+			</item>
+		
+			<item>
+				<title>Testing Readability with a Bunch of Text</title>
+				<description>&lt;p&gt;Portland in shoreditch Vice, labore typewriter pariatur hoodie fap sartorial Austin. Pinterest literally occupy Schlitz forage. Odio ad blue bottle vinyl, 90’s narwhal commodo bitters pour-over nostrud. Ugh est hashtag in, fingerstache adipisicing laboris esse Pinterest shabby chic Portland. Shoreditch bicycle rights anim, flexitarian laboris put a bird on it vinyl cupidatat narwhal. Hashtag artisan skateboard, flannel Bushwick nesciunt salvia aute fixie do plaid post-ironic dolor McSweeney’s. Cliche pour-over chambray nulla four loko skateboard sapiente hashtag.&lt;/p&gt;
+
+&lt;p&gt;Vero laborum commodo occupy. Semiotics voluptate mumblecore pug. Cosby sweater ullamco quinoa ennui assumenda, sapiente occupy delectus lo-fi. Ea fashion axe Marfa cillum aliquip. Retro Bushwick keytar cliche. Before they sold out sustainable gastropub Marfa readymade, ethical Williamsburg skateboard brunch qui consectetur gentrify semiotics. Mustache cillum irony, fingerstache magna pour-over keffiyeh tousled selfies.&lt;/p&gt;
+
+&lt;h2 id=&quot;cupidatat-90s-lo-fi-authentic-try-hard&quot;&gt;Cupidatat 90’s lo-fi authentic try-hard&lt;/h2&gt;
+
+&lt;p&gt;In pug Portland incididunt mlkshk put a bird on it vinyl quinoa. Terry Richardson shabby chic +1, scenester Tonx excepteur tempor fugiat voluptate fingerstache aliquip nisi next level. Farm-to-table hashtag Truffaut, Odd Future ex meggings gentrify single-origin coffee try-hard 90’s.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Sartorial hoodie&lt;/li&gt;
+  &lt;li&gt;Labore viral forage&lt;/li&gt;
+  &lt;li&gt;Tote bag selvage&lt;/li&gt;
+  &lt;li&gt;DIY exercitation et id ugh tumblr church-key&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Incididunt umami sriracha, ethical fugiat VHS ex assumenda yr irure direct trade. Marfa Truffaut bicycle rights, kitsch placeat Etsy kogi asymmetrical. Beard locavore flexitarian, kitsch photo booth hoodie plaid ethical readymade leggings yr.&lt;/p&gt;
+
+&lt;p&gt;Aesthetic odio dolore, meggings disrupt qui readymade stumptown brunch Terry Richardson pour-over gluten-free. Banksy american apparel in selfies, biodiesel flexitarian organic meh wolf quinoa gentrify banjo kogi. Readymade tofu ex, scenester dolor umami fingerstache occaecat fashion axe Carles jean shorts minim. Keffiyeh fashion axe nisi Godard mlkshk dolore. Lomo you probably haven’t heard of them eu non, Odd Future Truffaut pug keytar meggings McSweeney’s Pinterest cred. Etsy literally aute esse, eu bicycle rights qui meggings fanny pack. Gentrify leggings pug flannel duis.&lt;/p&gt;
+
+&lt;h2 id=&quot;forage-occaecat-cardigan-qui&quot;&gt;Forage occaecat cardigan qui&lt;/h2&gt;
+
+&lt;p&gt;Fashion axe hella gastropub lo-fi kogi 90’s aliquip +1 veniam delectus tousled. Cred sriracha locavore gastropub kale chips, iPhone mollit sartorial. Anim dolore 8-bit, pork belly dolor photo booth aute flannel small batch. Dolor disrupt ennui, tattooed whatever salvia Banksy sartorial roof party selfies raw denim sint meh pour-over. Ennui eu cardigan sint, gentrify iPhone cornhole.&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Whatever velit occaecat quis deserunt gastropub, leggings elit tousled roof party 3 wolf moon kogi pug blue bottle ea. Fashion axe shabby chic Austin quinoa pickled laborum bitters next level, disrupt deep v accusamus non fingerstache.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Tote bag asymmetrical elit sunt. Occaecat authentic Marfa, hella McSweeney’s next level irure veniam master cleanse. Sed hoodie letterpress artisan wolf leggings, 3 wolf moon commodo ullamco. Anim occupy ea labore Terry Richardson. Tofu ex master cleanse in whatever pitchfork banh mi, occupy fugiat fanny pack Austin authentic. Magna fugiat 3 wolf moon, labore McSweeney’s sustainable vero consectetur. Gluten-free disrupt enim, aesthetic fugiat jean shorts trust fund keffiyeh magna try-hard.&lt;/p&gt;
+
+&lt;h2 id=&quot;hoodie-duis&quot;&gt;Hoodie Duis&lt;/h2&gt;
+
+&lt;p&gt;Actually salvia consectetur, hoodie duis lomo YOLO sunt sriracha. Aute pop-up brunch farm-to-table odio, salvia irure occaecat. Sriracha small batch literally skateboard. Echo Park nihil hoodie, aliquip forage artisan laboris. Trust fund reprehenderit nulla locavore. Stumptown raw denim kitsch, keffiyeh nulla twee dreamcatcher fanny pack ullamco 90’s pop-up est culpa farm-to-table. Selfies 8-bit do pug odio.&lt;/p&gt;
+
+&lt;h3 id=&quot;thundercats-ho&quot;&gt;Thundercats Ho!&lt;/h3&gt;
+
+&lt;p&gt;Fingerstache thundercats Williamsburg, deep v scenester Banksy ennui vinyl selfies mollit biodiesel duis odio pop-up. Banksy 3 wolf moon try-hard, sapiente enim stumptown deep v ad letterpress. Squid beard brunch, exercitation raw denim yr sint direct trade. Raw denim narwhal id, flannel DIY McSweeney’s seitan. Letterpress artisan bespoke accusamus, meggings laboris consequat Truffaut qui in seitan. Sustainable cornhole Schlitz, twee Cosby sweater banh mi deep v forage letterpress flannel whatever keffiyeh. Sartorial cred irure, semiotics ethical sed blue bottle nihil letterpress.&lt;/p&gt;
+
+&lt;p&gt;Occupy et selvage squid, pug brunch blog nesciunt hashtag mumblecore skateboard yr kogi. Ugh small batch swag four loko. Fap post-ironic qui tote bag farm-to-table american apparel scenester keffiyeh vero, swag non pour-over gentrify authentic pitchfork. Schlitz scenester lo-fi voluptate, tote bag irony bicycle rights pariatur vero Vice freegan wayfarers exercitation nisi shoreditch. Chambray tofu vero sed. Street art swag literally leggings, Cosby sweater mixtape PBR lomo Banksy non in pitchfork ennui McSweeney’s selfies. Odd Future Banksy non authentic.&lt;/p&gt;
+
+&lt;p&gt;Aliquip enim artisan dolor post-ironic. Pug tote bag Marfa, deserunt pour-over Portland wolf eu odio intelligentsia american apparel ugh ea. Sunt viral et, 3 wolf moon gastropub pug id. Id fashion axe est typewriter, mlkshk Portland art party aute brunch. Sint pork belly Cosby sweater, deep v mumblecore kitsch american apparel. Try-hard direct trade tumblr sint skateboard. Adipisicing bitters excepteur biodiesel, pickled gastropub aute veniam.&lt;/p&gt;
+</description>
+				<pubDate>Tue, 22 May 2012 00:00:00 +0100</pubDate>
+				<link>http://localhost:4000/blog/2012-05-22/readability-post/</link>
+				<guid isPermaLink="true">http://localhost:4000/blog/2012-05-22/readability-post/</guid>
+			</item>
+		
+	</channel>
+</rss>

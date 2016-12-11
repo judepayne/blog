@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Introduction to stream processors</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/blog/assets/css/main.css" type="text/css">
+  <link rel="stylesheet" href="/blog/assets/css/social-share-kit.css" type="text/css">
+
+  <!-- Font -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css">
+
+
+  <link rel="alternate" type="application/rss+xml" title="RSS Feed for Jude's functional blog" href="/blog/feed.xml" />
+  <!-- Begin Jekyll SEO tag v2.1.0 -->
+<title>Introduction to stream processors - Jude’s functional blog</title>
+<meta property="og:title" content="Introduction to stream processors" />
+<meta name="description" content="Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it’s quite likely that in a few years time ‘Stream Processors’ will be as well understood a class of application as ‘Database’ or ‘Web Server’; this is not the case today. In this article, I’ll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing." />
+<meta property="og:description" content="Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it’s quite likely that in a few years time ‘Stream Processors’ will be as well understood a class of application as ‘Database’ or ‘Web Server’; this is not the case today. In this article, I’ll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing." />
+<link rel="canonical" href="http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" />
+<meta property="og:url" content="http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" />
+<meta property="og:site_name" content="Jude’s functional blog" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2016-12-08T21:46:04+00:00" />
+<script type="application/ld+json">
+{"@context": "http://schema.org",
+"@type": "BlogPosting",
+"headline": "Introduction to stream processors",
+"datePublished": "2016-12-08T21:46:04+00:00",
+"description": "Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it’s quite likely that in a few years time ‘Stream Processors’ will be as well understood a class of application as ‘Database’ or ‘Web Server’; this is not the case today. In this article, I’ll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing.",
+"url": "http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/"}</script>
+<!-- End Jekyll SEO tag -->
+
+
+
+  <!-- Google Analytics -->
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', '', 'auto');
+ga('send', 'pageview');
+
+</script>
+
+
+
+</head>
+
+<body>
+  <div class="content-container">
+    <header>
+  <h1 class="header-small">
+    <a href="http://localhost:4000/blog">Jude's functional blog</a>
+  </h1>
+</header>
+<div class="post">
+  <h1 class="post-title">Introduction to stream processors</h1>
+  <span class="post-date">
+    <time>08 Dec 2016</time>
+  </span>
+  <div class="post-tag">
+    <ul>
+      
+    </ul>
+  </div>
+
+  <p>Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it’s quite likely that in a few years time ‘Stream Processors’ will be as well understood a class of application as ‘Database’ or ‘Web Server’; this is not the case today. In this article, I’ll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing.<!--more--></p>
+
+<h2 id="a-toy-stream-processor">A toy stream processor</h2>
+
+<p>To illustrate what a stream processor is, let’s build a very basic example. Although basic, it will have nearly all the same parts as it’s production grade counterpart like Apache Spark, Apache Samza or Axiom. We’ll use Clojure, a functional lisp for the JVM as it’s very efficient to get stuff done in. As we’ll expand upon later, one of the foundational idioms in functional programming language is processing streams, or rather collections; Functional languages are a great fit for constructing stream processors.</p>
+
+<p>Stream processors listen to one or more streams of data that might be provided from message buses, web sockets or even database pollers. Our example will come from the world of Finance and will listen to stream of ‘Orders’ and ‘Executions’ and produce ‘Trades’ from them. The first job is to mock up a couple of streams of data…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nf">ns</span><span class="w"> </span><span class="n">stream-processor.part1</span><span class="p">)</span><span class="w">
+    
+    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">order-fountain</span><span class="w"> </span><span class="p">[]</span><span class="w">  
+    </span><span class="p">(</span><span class="nf">lazy-seq</span><span class="w">  
+      </span><span class="p">(</span><span class="nb">cons</span><span class="w">  
+            </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="p">(</span><span class="nb">+</span><span class="w"> </span><span class="mi">1000</span><span class="w"> </span><span class="p">(</span><span class="nb">inc</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">10</span><span class="p">)))</span><span class="w">  
+             </span><span class="no">:type</span><span class="w"> </span><span class="ss">'order</span><span class="o">'</span><span class="w">  
+             </span><span class="no">:ord-attr</span><span class="w"> </span><span class="p">([</span><span class="ss">'red</span><span class="o">'</span><span class="w"> </span><span class="ss">'yellow</span><span class="o">'</span><span class="w"> </span><span class="ss">'blue</span><span class="o">'</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">3</span><span class="p">))}</span><span class="w">  
+            </span><span class="p">(</span><span class="nf">order-fountain</span><span class="p">))))</span></code></pre></figure>
+
+<p>First we declare a namespace of our stream processor’s code to sit in. The <code class="highlighter-rouge">order-fountain</code> function produces a endless stream of randomised orders. Each order is a Clojure hashmap with keys :comp-id (an identifier), :type and :ord-attr which contains the actual attributes associated with the order (“red”, “yellow” or “blue” in our toy stream processor app). The way the function works is to produce a random order and ‘<code class="highlighter-rouge">cons</code>’ it onto another call to itself. That is then wrapped in a <code class="highlighter-rouge">lazy-seq</code> to make it lazy and not immediately process forever when called; only those items that are asked for will be processed.</p>
+
+<p>We can use it like this;</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="p">(</span><span class="nf">order-fountain</span><span class="p">))</span></code></pre></figure>
+
+<p>results in table form:</p>
+
+<div class="table-wrapper">
+<table>
+<tbody>
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1003</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">yellow</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">blue</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1008</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">blue</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>We get a sequence of five orders from our fountain with randomised elements. Let’s build something a similar sequence of executions…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">execution-fountain</span><span class="w"> </span><span class="p">[]</span><span class="w">  
+      </span><span class="p">(</span><span class="nf">lazy-seq</span><span class="w">  
+        </span><span class="p">(</span><span class="nb">cons</span><span class="w">  
+          </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="p">(</span><span class="nb">+</span><span class="w"> </span><span class="mi">1000</span><span class="w"> </span><span class="p">(</span><span class="nb">inc</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">7</span><span class="p">)))</span><span class="w">  
+           </span><span class="no">:type</span><span class="w"> </span><span class="ss">'execution</span><span class="o">'</span><span class="w">  
+           </span><span class="no">:exec-attr</span><span class="w"> </span><span class="p">([</span><span class="no">:x</span><span class="w"> </span><span class="no">:y</span><span class="w"> </span><span class="no">:z</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">3</span><span class="p">))}</span><span class="w">  
+          </span><span class="p">(</span><span class="nf">execution-fountain</span><span class="p">))))</span></code></pre></figure>
+
+<p>Now let’s combine those two streams into one as follows and check the output when we take the first few items off the resulting stream…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">-&gt;</span><span class="w">
+      </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">10</span><span class="w">
+      </span><span class="p">(</span><span class="nb">interleave</span><span class="w"> </span><span class="p">(</span><span class="nf">order-fountain</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">execution-fountain</span><span class="p">))))</span></code></pre></figure>
+
+<div class="table-wrapper">
+<table>
+<colgroup>
+<col class="org-left" />
+<col class="org-right" />
+<col class="org-left" />
+<col class="org-left" />
+<col class="org-left" />
+<col class="org-left" />
+</colgroup>
+<tbody>
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1006</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">blue</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1002</td>
+<td class="org-left">:type</td>
+<td class="org-left">execution</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:z</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">blue</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1005</td>
+<td class="org-left">:type</td>
+<td class="org-left">execution</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1003</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">execution</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:z</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1007</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1006</td>
+<td class="org-left">:type</td>
+<td class="org-left">execution</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:x</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1008</td>
+<td class="org-left">:type</td>
+<td class="org-left">order</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">yellow</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1002</td>
+<td class="org-left">:type</td>
+<td class="org-left">execution</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:x</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p><code class="highlighter-rouge">-&gt;</code> is the threading macro - it sequences a series of operations.</p>
+
+<p>As you can see, we get an order then execution then order.. etc. That’s what <code class="highlighter-rouge">interleave</code> does. Good enough for our dummy stream. Both orders and executions have a ‘comp-id’ which is randomised to between 1001 and 1010. That’s what we’ll be joining on - when an order and a trade have the same comp-id, we want to make them into a trade. An execution has an <code class="highlighter-rouge">:exec-attr</code> field rather than an <code class="highlighter-rouge">:ord-attr</code>. It can take values :x, :y or :z.</p>
+
+<p>A stream processor always has some sort of stateful store. It might be a sql database, a distributed key value store or something else. This components provides state and is also one of the components that provides resilience (We’ll come to the other component needed for resilience later).</p>
+
+<p>In this example we’ll use the simplest store of all - a hash map. <code class="highlighter-rouge"><span class="p">{}</span></code> in Clojure.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">def</span><span class="w"> </span><span class="n">stateful-store</span><span class="w"> </span><span class="p">(</span><span class="nf">atom</span><span class="w"> </span><span class="p">{}))</span></code></pre></figure>
+
+<p>Clojure, as a functional langugage, tries to operate without explicit state as much as possible, but sometimes you need it. Our hash map store is placed inside an <code class="highlighter-rouge">atom</code> which ensures that any changes made to the hash map are atomic and thread-safe.
+Now let’s get to the main event, the stream processor itself.</p>
+
+<p>We’ll write a ‘trade maker’ function takes in a stream of data and takes in a join function that is used to join an order and execution with matching comp-id’s (our pivot field). In this case the join function will simply merge the hash map representing the order with that of the stream and set the :type of the result to ‘trade’…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">def</span><span class="w"> </span><span class="n">my-join</span><span class="w"> </span><span class="p">[</span><span class="n">i1</span><span class="w"> </span><span class="n">i2</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">assoc</span><span class="w"> </span><span class="p">(</span><span class="nb">merge</span><span class="w"> </span><span class="n">i1</span><span class="w"> </span><span class="n">i2</span><span class="p">)</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="err">“</span><span class="n">trade</span><span class="err">”</span><span class="p">))</span></code></pre></figure>
+
+<p>The logic of the <code class="highlighter-rouge">make-trade</code> function that we need next is simple.</p>
+
+<p>First we extract the comp-id from the trade or order in hand and check if its counterpart is already in our stateful store.</p>
+
+<p>If not, then we need to cache the item in hand. If is is, then we apply the join function to the item in hand and the retrieved cached item, thereby joining execution to order or order to execution…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">make-trade</span><span class="w"> </span><span class="p">[</span><span class="n">stream</span><span class="w"> </span><span class="n">join-fn</span><span class="p">]</span><span class="w">  
+      </span><span class="p">(</span><span class="nb">map</span><span class="w">  
+       </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">item</span><span class="p">]</span><span class="w">  
+         </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">comp-id</span><span class="w"> </span><span class="p">(</span><span class="no">:comp-id</span><span class="w"> </span><span class="n">item</span><span class="p">)</span><span class="w">  
+               </span><span class="n">other-side</span><span class="w"> </span><span class="p">(</span><span class="nb">get</span><span class="w"> </span><span class="err">@</span><span class="n">stateful-store</span><span class="w"> </span><span class="n">comp-id</span><span class="p">)]</span><span class="w">  
+           </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">or</span><span class="w"> </span><span class="p">(</span><span class="nb">nil?</span><span class="w"> </span><span class="n">other-side</span><span class="p">)</span><span class="w">
+                   </span><span class="p">(</span><span class="nb">=</span><span class="w"> </span><span class="p">(</span><span class="no">:type</span><span class="w"> </span><span class="n">item</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="no">:type</span><span class="w"> </span><span class="n">other-side</span><span class="p">)))</span><span class="w">  
+             </span><span class="p">(</span><span class="nf">do</span><span class="w"> </span><span class="p">(</span><span class="nf">swap!</span><span class="w"> </span><span class="n">stateful-store</span><span class="w"> </span><span class="nb">assoc</span><span class="w"> </span><span class="n">comp-id</span><span class="w"> </span><span class="n">item</span><span class="p">)</span><span class="w">  
+                 </span><span class="p">(</span><span class="nb">str</span><span class="w"> </span><span class="ss">'caching</span><span class="w"> </span><span class="o">'</span><span class="w"> </span><span class="p">(</span><span class="no">:type</span><span class="w"> </span><span class="n">item</span><span class="p">)</span><span class="w"> </span><span class="o">'</span><span class="w"> </span><span class="n">comp-id</span><span class="err">:</span><span class="w"> </span><span class="o">'</span><span class="w"> </span><span class="n">comp-id</span><span class="p">))</span><span class="w">  
+             </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">not=</span><span class="w"> </span><span class="p">(</span><span class="no">:type</span><span class="w"> </span><span class="n">item</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="no">:type</span><span class="w"> </span><span class="n">other-side</span><span class="p">))</span><span class="w">  
+               </span><span class="p">(</span><span class="nf">do</span><span class="w"> </span><span class="p">(</span><span class="nf">swap!</span><span class="w"> </span><span class="n">stateful-store</span><span class="w"> </span><span class="nb">dissoc</span><span class="w"> </span><span class="n">comp-id</span><span class="p">)</span><span class="w">  
+                   </span><span class="p">(</span><span class="nf">join-fn</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="n">other-side</span><span class="p">))))))</span><span class="w">  
+       </span><span class="n">stream</span><span class="p">))</span></code></pre></figure>
+
+<p>Ok, we’re done!</p>
+
+<p>Let’s test it out…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">-&gt;</span><span class="w">
+      </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">25</span><span class="w">
+      </span><span class="p">(</span><span class="nb">interleave</span><span class="w"> </span><span class="p">(</span><span class="nf">order-fountain</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">execution-fountain</span><span class="p">)))</span><span class="w">  
+      </span><span class="p">(</span><span class="nf">make-trade</span><span class="w"> </span><span class="n">my-join</span><span class="p">))</span><span class="w">
+
+    </span><span class="p">(</span><span class="s">"caching order comp-id: 1004"</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1002"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1005"</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1001"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1010"</span><span class="w">
+     </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="mi">1005</span><span class="n">,</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="s">"trade"</span><span class="n">,</span><span class="w"> </span><span class="no">:exec-attr</span><span class="w"> </span><span class="no">:x,</span><span class="w"> </span><span class="no">:ord-attr</span><span class="w"> </span><span class="s">"blue"</span><span class="p">}</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1010"</span><span class="w">
+     </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="mi">1004</span><span class="n">,</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="s">"trade"</span><span class="n">,</span><span class="w"> </span><span class="no">:exec-attr</span><span class="w"> </span><span class="no">:z,</span><span class="w"> </span><span class="no">:ord-attr</span><span class="w"> </span><span class="s">"yellow"</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="mi">1001</span><span class="n">,</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="s">"trade"</span><span class="n">,</span><span class="w"> </span><span class="no">:ord-attr</span><span class="w"> </span><span class="s">"blue"</span><span class="n">,</span><span class="w"> </span><span class="no">:exec-attr</span><span class="w"> </span><span class="no">:x</span><span class="p">}</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1007"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1001"</span><span class="w">
+     </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="mi">1001</span><span class="n">,</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="s">"trade"</span><span class="n">,</span><span class="w"> </span><span class="no">:exec-attr</span><span class="w"> </span><span class="no">:x,</span><span class="w"> </span><span class="no">:ord-attr</span><span class="w"> </span><span class="s">"red"</span><span class="p">}</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1009"</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1007"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1010"</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1003"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1001"</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1004"</span><span class="w">
+     </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="mi">1004</span><span class="n">,</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="s">"trade"</span><span class="n">,</span><span class="w"> </span><span class="no">:ord-attr</span><span class="w"> </span><span class="s">"yellow"</span><span class="n">,</span><span class="w"> </span><span class="no">:exec-attr</span><span class="w"> </span><span class="no">:y</span><span class="p">}</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1005"</span><span class="w">
+     </span><span class="p">{</span><span class="no">:comp-id</span><span class="w"> </span><span class="mi">1007</span><span class="n">,</span><span class="w"> </span><span class="no">:type</span><span class="w"> </span><span class="s">"trade"</span><span class="n">,</span><span class="w"> </span><span class="no">:ord-attr</span><span class="w"> </span><span class="s">"red"</span><span class="n">,</span><span class="w"> </span><span class="no">:exec-attr</span><span class="w"> </span><span class="no">:y</span><span class="p">}</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1007"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1001"</span><span class="w">
+     </span><span class="s">"caching execution comp-id: 1004"</span><span class="w">
+     </span><span class="s">"caching order comp-id: 1009"</span><span class="p">)</span></code></pre></figure>
+
+<p>As you can see, the sequence produced is a mix of events where there is no match and the event is cached. When a match occurs, a trade is output with both order attributes and execution attributes.</p>
+
+<p>Here’s the topology of the toy processor:</p>
+
+<p><img src="http://localhost:4000/blog/images/toy1.svg" alt="" /></p>
+
+<p>All stream processors arrange their calculations in a topology, or ‘graph’. To describe any topology, we only need four relationships between nodes in the toplogy:</p>
+
+<ul>
+  <li>
+    <p><strong>Combination</strong>: two of more nodes point at the same node.</p>
+  </li>
+  <li>
+    <p><strong>Chain</strong>: one node points to the next.</p>
+  </li>
+  <li>
+    <p><strong>Split</strong>: a node points at the two or more nodes.</p>
+  </li>
+  <li>
+    <p><strong>Many to many</strong>: multiple incoming and out going nodes.</p>
+  </li>
+</ul>
+
+<p>There are only four types of computations which can happen at each node. We’ve seen two of these types already.</p>
+
+<p>Mappers ‘map’ a function over each element in the stream. sources and sinks are special cases of mappers - the endpoints of a topology. The <code class="highlighter-rouge">make-trade</code> function is an example of a mapper. Mappers always occur at a chain node - they are a single step in our topology.</p>
+
+<p>Combiners combine two or more streams with some logic. The expression <code class="highlighter-rouge">interleave (order-fountain) (execution-fountain)</code> is an example of a combiner. Combiners only occur at combination nodes.</p>
+
+<p>To illustrate the other two types of computation, we’ll extend the toy a little by making a new function to add to the processing topology:</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">filter-colour</span><span class="w"> </span><span class="p">[</span><span class="n">stream</span><span class="w"> </span><span class="n">colour</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="nb">filter</span><span class="w"> </span><span class="o">#</span><span class="p">(</span><span class="nb">=</span><span class="w"> </span><span class="n">colour</span><span class="w"> </span><span class="p">(</span><span class="no">:ord-attr</span><span class="w"> </span><span class="n">%</span><span class="p">))</span><span class="w"> </span><span class="n">stream</span><span class="p">))</span></code></pre></figure>
+
+<p>Filterers/ patitioners filter or split a stream. The <code class="highlighter-rouge">filter-colour</code> function which filters only those trades which have an <code class="highlighter-rouge">:ord-attr</code> field that matches the supplied colour is an example of a filterer/ partitioner. A filterer/ partitioner can only ever occur at a Split type of the node in the graph. A filterer is actually a special case of a partitioner - it’s a partitioner that only produces one output stream, the filtered out items being directly dropped rather than directed into another stream.</p>
+
+<p>We can add it into our processing chain like this. Note that this time, 100 items are taken off the fountain.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">100</span><span class="w">
+        </span><span class="p">(</span><span class="nb">interleave</span><span class="w"> </span><span class="p">(</span><span class="nf">order-fountain</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">execution-fountain</span><span class="p">)))</span><span class="w">  
+        </span><span class="p">(</span><span class="nf">make-trade</span><span class="w"> </span><span class="n">my-join</span><span class="p">)</span><span class="w">
+        </span><span class="p">(</span><span class="nf">filter-colour</span><span class="w"> </span><span class="s">"red"</span><span class="p">))</span></code></pre></figure>
+
+<div class="table-wrapper">
+<table>
+<tbody>
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1007</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1003</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:x</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1006</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:x</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1001</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1005</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:x</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1002</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1005</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:z</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1004</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:z</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1007</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:y</td>
+</tr>
+
+
+<tr>
+<td class="org-left">:comp-id</td>
+<td class="org-right">1006</td>
+<td class="org-left">:type</td>
+<td class="org-left">trade</td>
+<td class="org-left">:ord-attr</td>
+<td class="org-left">red</td>
+<td class="org-left">:exec-attr</td>
+<td class="org-left">:z</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>Reducers. The final type of computation is a reducer, the most powerful type. All of the first three types of computations can be expressed in terms of a reducing function. A reducer takes the first item of the stream, applies the given function it to get a result. It then takes the next item and the previous result, applies the function again to get the next result, and so on… In this way, reducers ‘collect up’ the stream. Average price sliding windows are a good example of a reducer. Reducers can occur at type of node in the toplogy.</p>
+
+<p>To illustrate reducers, let’s use one of the simplest: <code class="highlighter-rouge">count</code> this time taking 20,000 items off the fountain…</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">-&gt;</span><span class="w">
+     </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">20000</span><span class="w"> </span><span class="p">(</span><span class="nb">interleave</span><span class="w"> </span><span class="p">(</span><span class="nf">order-fountain</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">execution-fountain</span><span class="p">)))</span><span class="w">
+     </span><span class="p">(</span><span class="nf">make-trade</span><span class="w"> </span><span class="n">my-join</span><span class="p">)</span><span class="w">
+     </span><span class="p">(</span><span class="nf">filter-colour</span><span class="w"> </span><span class="s">"red"</span><span class="p">)</span><span class="w">
+     </span><span class="nb">count</span><span class="p">)</span><span class="w">
+
+    </span><span class="mi">1850</span></code></pre></figure>
+
+<p>(note: Every time the above expression is evaluated, we’d get a slightly different result due to the randomisation of orders and executions in the fountain.)</p>
+
+<p>Here’s the final toplogy of the toy:</p>
+
+<p><img src="http://localhost:4000/blog/images/toy2.svg" alt="" /></p>
+
+<p>What would be our next steps in making this less toy-like?</p>
+
+<p>We could change the dummy order and execution-fountain functions to, say, listen to channels on a message bus. None of the other code would need to change.</p>
+
+<p>The stateful store provides one half of the resilience story for the system. We could replace the hashmap with, say, a replicated Key-Value store and our system is more resilient.</p>
+
+<p>The output stream of trades rather than being printed out would go somewhere; e.g. to a database or into another channel of a message bus.</p>
+
+<p>Wrap all functions into higher order functions to provide consistent logging + error handling etc.</p>
+
+<p>Provide the other half of the resilience story, <strong>the event log</strong>. Every event coming into the processor must immediately be logged so that the processor can recover its state later if it crashes with it is half way through processing an event through it’s topology.</p>
+
+<p>Finally, we’ve made one giant simplification in our toy processor which is that there are no branches in the processing logic. In the example, we used a filter operation but not a full-blown partition operation. Having two branches of processing would have forced us to examine whether we want to be able to process multiple events through the graph concurrent, imagining each of the processing steps as nodes with asynchronous communication between them. Such a set allows for greater efficiency but brings further complexity into play when thinking about resilience. Rather than a processor that processes events one at a time and has either processed a particular event or it hasn’t, we could have multiple events at various stages of processing inside our graph. Saying exactly what the state of that graph is in the event of failure so that we can resume later becomes much harder. A topic of a future blog.</p>
+
+<h2 id="production-grade-stream-processors">Production grade stream processors</h2>
+
+<p>With this understanding of the basic generalities of a stream processor, we can see that there are stream processors and stream processor use cases all around.</p>
+
+<p>Where we need to process a sequence of events, we’re effectively building a stream processor application. Stream processing is sometimes mistakenly conflated with the need to process big data in stream, but smaller scale stream processor use cases are just as valid.</p>
+
+<p>Production grade stream processors fall into two camps: distributed or non-distributed.</p>
+
+<p>Distributed stream processors are a hot area of technology right now and are seen as companion-successors to Hadoop for large scale data processing. Hadoop for massive offline batch processing and stream processors for immediate/ ‘less deep’ processing on the incoming stream of data with output of the two combining in a very large data store with both deep and immediate data (analytics) in it. This is known as a ‘Lambda architecture’, while the streaming part of it on its own a ‘Kappa architecture’</p>
+
+<p>In my experience, non-distributed stream processors are rarely called as such - rather people often talk about certain patterns (e.g. ‘event sourcing’) or CEP ‘complex event processing’. As mentioned earlier, when the topology of the graph you need becomes complex enough that asychronous communication between the (processing) nodes is required, failure recovery is a challenge unless it’s ok to lose a certain amount of data as for example is certain analytics use cases. Therefore, in order to take that complexity away from the developer who wishes to focus on the task in hand, there is definitely a role for small scale stream processing frameworks.</p>
+
+<p>Building a distributed stream processor is considerably harder than a non. Difficult scenarios like node failure during processing an event, another node taking over processing the event and then the first node coming back up and this time successfully processing the event - with duplicating the output - have to be solved for. The major distriubted stream processors are all therefore large Apache projects with hundreds of committers each. The major ones are: Apache Spark, Apache Storm, Apache Flink and Apache Samza.</p>
+
+<p>These distributed stream processors are all basically fairly similar in their main concepts but make slightly different choices about whether they process one event at a time (Storm, Flink and Samza) or in micro-batches (Spark), whether they guarantee to process an event exactly once or at least once, what types of resilient stores they offer.. etc.</p>
+
+<p>Let’s have a brief look at Apache Spark, the most popular of the big four, to see what kinds of advantages it offers over a home grown framework.</p>
+
+<p>The first area of advantage is clearly scale. Spark is a medium latency, high throughput framework that scales pretty much linearly with the number of nodes added. Spark runs in an all-active cluster which can span over datacentres. If nodes/ a data centre is suddenly unavilable, processing will continue albeit probably more slowly until full capacity is restored. The benefit of scale is that a Spark cluster can run many topologies at once; freeing up multiple teams with similar stream processing needs to focus more on their business logic rather than the non functionals.</p>
+
+<p>The second area where Spark or the other mature stream processor frameworks really shines over home grown frameworks is convenience. This point is probably at least as important as the first.</p>
+
+<p>To define a processing topology in Spark, you would:</p>
+
+<ul>
+  <li>
+    <p>Define the toplogy of the graph (a list of nodes and their relationships).</p>
+  </li>
+  <li>
+    <p>Define the type of each node: mapper, partitioner, etc.</p>
+  </li>
+  <li>
+    <p>Define the business logic that runs in each node.</p>
+  </li>
+</ul>
+
+<p>By working with the general concepts and having all the scaffolding done for you, new computations are quick to define.</p>
+
+<p>Spark’s resilient store is called ‘RDD’ which stands for ‘Resilient Distributed Dataset(s)’. These are effectively like relational database tables and the developer works with them in Java or Scala code which is very like SQL, helping transition.</p>
+
+<p>Finally, on convenience, Spark offers a wide range of end-points out of the box. It can connect to JMS queues, has database pollers, file watchers, RMDB sysnchronisers etc - which strip out a lot of the ‘plumbing in’ type work.</p>
+
+<p>I hope that served is a useful introduction to basics of stream processors and current state of the market. It’s an exciting and relatively new area which can have a number of important applications in any organisation that deals with a lot of live data. By recognising stream processing use cases, it’s easier to think of applications which might be performing very different business logic as being essentially the same as each other.</p>
+
+
+
+  <!-- Share -->
+  
+  <div class="post-share">
+    <hr>
+    <span>Share this: <br /></span>
+<a href="https://www.facebook.com/sharer/sharer.php?u=http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-facebook"></a>
+<a href="https://twitter.com/intent/tweet?text=Introduction to stream processors&url=http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-twitter"></a>
+<a href="https://plus.google.com/share?url=http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-google-plus"></a>
+<a href="https://www.tumblr.com/share?url=http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-tumblr"></a>
+<a href="mailto:?subject=Introduction to stream processors&amp;body=Check out this site http://localhost:4000/blog/2016-12-08/intro-to-stream-processors/" class="ssk ssk-icon ssk-email"></a>
+
+    <hr>
+  </div>
+  
+
+  <!-- Disqus -->
+  
+  <section id="disqus_thread"></section>
+  <script>
+
+/**
+*  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+*  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+var d = document, s = d.createElement('script');
+s.src = '//judepayne402@gmail.com.disqus.com/embed.js';
+s.setAttribute('data-timestamp', +new Date());
+(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+  
+
+</div>
+
+
+    <!-- Documents about icons are here: http://fontawesome.io/icons/ -->
+<div class="footer">
+	<hr />
+	<div class="footer-link">
+		
+
+		
+
+		
+		<a href="https://github.com/judepayne"><i class="fa fa-github" aria-hidden="true"></i></a>
+		
+
+		
+		<a href="https://www.linkedin.com/in/jude-payne-16576114"><i class="fa fa-linkedin" aria-hidden="true"></i></a>
+		
+
+		
+
+		
+
+		
+		<a href="mailto:your-id@your-email.com"><i class="fa fa-envelope" aria-hidden="true"></i></a>
+		
+
+	</div>
+	© 2016 Jude Payne. All rights reserved.
+</div>
+
+  </div>
+</body>
+</html>
