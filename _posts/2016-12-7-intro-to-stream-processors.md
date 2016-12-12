@@ -8,9 +8,15 @@ tags:
 - stream processing
 - stream processor
 - clojure
+- apache spark
 ---
 
-Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it's quite likely that in a few years time 'Stream Processors' will be as well understood a class of application as 'Database' or 'Web Server'; this is not the case today. In this article, I'll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing.<!--more-->
+Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it's quite likely that in a few years time 'Stream Processors' will be as well understood a class of application as 'Database' or 'Web Server' are today.
+
+But stream processing is nothing new. At its heart stream processing is just a way of arranging/ thinking about how to arrange your compute. The stream processing way of doing it meets the modern need of having for processing events as soon as they are received. There's also a clear tie in to functional programming; stream processing is actually one of the core paradigms in functional languages which process functions over streams/ collections of data. 
+
+In this article, I'll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors (e.g. [Apache Spark](http://spark.apache.org)) build on that to achieve resilient, scalable processing.
+
 
 ## A toy stream processor
 
@@ -94,7 +100,7 @@ results in table form:
 </table>
 </div>
 
-We get a sequence of five orders from our fountain with randomised elements. Let’s build something a similar sequence of executions…
+We get a sequence of five orders from our fountain with randomised elements. Let’s build something a similar for a sequence of executions…
 
 {% highlight clojure %}
     (defn execution-fountain []  
@@ -310,7 +316,7 @@ As you can see, the sequence produced is a mix of events where there is no match
 
 Here’s the topology of the toy processor:
 
-![]({{ site.url }}/blog/images/toy1.svg)
+![](../../images/toy1.svg)
 
 All stream processors arrange their calculations in a topology, or ‘graph’. To describe any topology, we only need four relationships between nodes in the toplogy:
 
@@ -513,7 +519,7 @@ To illustrate reducers, let’s use one of the simplest: `count` this time takin
 
 Here’s the final toplogy of the toy:
 
-![]({{ site.url }}/blog/images/toy2.svg)
+![](../../images/toy2.svg)
 
 What would be our next steps in making this less toy-like?
 

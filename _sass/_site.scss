@@ -266,13 +266,13 @@ body {
   &-post {
 		padding-left: .75rem;
 		a {
-			color: $base-color;
+		color: $base-color;
 
-			&:hover {
-				color: $base-color;
-				text-decoration: none;
-				background-color: $background-over-color;
-		    border-color: transparent;
+		&:hover {
+		color: $base-color;
+		text-decoration: none;
+		background-color: $background-over-color;
+		border-color: transparent;
       }
 		}
   }
@@ -289,10 +289,10 @@ body {
         color: $base-color;
 
         &:hover {
-  				color: $base-color;
-  				text-decoration: none;
-  				background-color: $background-over-color;
-  		    border-color: transparent;
+  		color: $base-color;
+  		text-decoration: none;
+  		background-color: $background-over-color;
+  		border-color: transparent;
         }
 
       }
