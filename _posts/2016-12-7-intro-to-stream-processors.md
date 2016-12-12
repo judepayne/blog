@@ -3,7 +3,11 @@ layout: post
 title:  "Introduction to stream processors"
 subtitle: "Part One"
 date:   2016-12-08 21:46:04
-categories: jekyll css
+category: programming
+tags:
+- stream processing
+- stream processor
+- clojure
 ---
 
 Processing data in live streams is a very exciting area of technology at the moment. Given the trend to prominence, it's quite likely that in a few years time 'Stream Processors' will be as well understood a class of application as 'Database' or 'Web Server'; this is not the case today. In this article, I'll explain stream processors by looking at the various pieces that are needed to make one up and show how production grade stream processors build on that to achieve resilient, scalable processing.<!--more-->
