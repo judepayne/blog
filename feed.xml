@@ -2,8 +2,8 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
 	<channel>
 		<title>Jude's functional blog</title>
-		<link>https://judepayne.github.io/blog/blog</link>
-		<atom:link href="https://judepayne.github.io/blog/blog/feed.xml" rel="self" type="application/rss+xml" />
+		<link>https://judepayne.github.io/blog</link>
+		<atom:link href="https://judepayne.github.io/blog/feed.xml" rel="self" type="application/rss+xml" />
 		
 			<item>
 				<title>Introduction to stream processors</title>
@@ -293,7 +293,7 @@ Now let’s get to the main event, the stream processor itself.&lt;/p&gt;
 
 &lt;p&gt;Here’s the topology of the toy processor:&lt;/p&gt;
 
-&lt;p&gt;&lt;img src=&quot;https://judepayne.github.io/blog/blog/images/toy1.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;https://judepayne.github.io/blog/images/toy1.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
 
 &lt;p&gt;All stream processors arrange their calculations in a topology, or ‘graph’. To describe any topology, we only need four relationships between nodes in the toplogy:&lt;/p&gt;
 
@@ -497,7 +497,7 @@ Now let’s get to the main event, the stream processor itself.&lt;/p&gt;
 
 &lt;p&gt;Here’s the final toplogy of the toy:&lt;/p&gt;
 
-&lt;p&gt;&lt;img src=&quot;https://judepayne.github.io/blog/blog/images/toy2.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;https://judepayne.github.io/blog/images/toy2.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
 
 &lt;p&gt;What would be our next steps in making this less toy-like?&lt;/p&gt;
 
@@ -558,8 +558,8 @@ Now let’s get to the main event, the stream processor itself.&lt;/p&gt;
 &lt;p&gt;I hope that served is a useful introduction to basics of stream processors and current state of the market. It’s an exciting and relatively new area which can have a number of important applications in any organisation that deals with a lot of live data. By recognising stream processing use cases, it’s easier to think of applications which might be performing very different business logic as being essentially the same as each other.&lt;/p&gt;
 </description>
 				<pubDate>Thu, 08 Dec 2016 21:46:04 +0000</pubDate>
-				<link>https://judepayne.github.io/blog/blog/2016-12-08/intro-to-stream-processors/</link>
-				<guid isPermaLink="true">https://judepayne.github.io/blog/blog/2016-12-08/intro-to-stream-processors/</guid>
+				<link>https://judepayne.github.io/blog/2016-12-08/intro-to-stream-processors/</link>
+				<guid isPermaLink="true">https://judepayne.github.io/blog/2016-12-08/intro-to-stream-processors/</guid>
 			</item>
 		
 	</channel>
