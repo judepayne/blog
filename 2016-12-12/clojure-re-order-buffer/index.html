@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A re-order buffer in Clojure</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/blog/assets/css/main.css" type="text/css">
+  <link rel="stylesheet" href="/blog/assets/css/social-share-kit.css" type="text/css">
+
+  <!-- Font -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css">
+
+
+  <link rel="alternate" type="application/rss+xml" title="RSS Feed for Afunctional blog" href="/blog/feed.xml" />
+  <!-- Begin Jekyll SEO tag v2.1.0 -->
+<title>A re-order buffer in Clojure - Afunctional blog</title>
+<meta property="og:title" content="A re-order buffer in Clojure" />
+<meta name="description" content="A re-order buffer caches incoming items and releases them in chunks according to a (usually) time based sort order. Its role is to act as a stage in a data/ event flow to ensure that some downstream function receives events in the right order more of the time." />
+<meta property="og:description" content="A re-order buffer caches incoming items and releases them in chunks according to a (usually) time based sort order. Its role is to act as a stage in a data/ event flow to ensure that some downstream function receives events in the right order more of the time." />
+<link rel="canonical" href="http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" />
+<meta property="og:url" content="http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" />
+<meta property="og:site_name" content="Afunctional blog" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2016-12-12T22:00:00+00:00" />
+<script type="application/ld+json">
+{"@context": "http://schema.org",
+"@type": "BlogPosting",
+"headline": "A re-order buffer in Clojure",
+"datePublished": "2016-12-12T22:00:00+00:00",
+"description": "A re-order buffer caches incoming items and releases them in chunks according to a (usually) time based sort order. Its role is to act as a stage in a data/ event flow to ensure that some downstream function receives events in the right order more of the time.",
+"url": "http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/"}</script>
+<!-- End Jekyll SEO tag -->
+
+
+
+  <!-- Google Analytics -->
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', '', 'auto');
+ga('send', 'pageview');
+
+</script>
+
+
+
+</head>
+
+<body>
+  <div class="content-container">
+    <header>
+  <h1 class="header-small">
+    <a href="http://localhost:4000/blog">Afunctional blog</a>
+  </h1>
+</header>
+<div class="post">
+  <h1 class="post-title">A re-order buffer in Clojure</h1>
+  <span class="post-date">
+    <time>12 Dec 2016</time>
+  </span>
+  <div class="post-tag">
+    <ul>
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#stream processing" class="tag">
+          <span class="term">stream processing</span>
+        </a>
+      </li>
+      
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#transducers" class="tag">
+          <span class="term">transducers</span>
+        </a>
+      </li>
+      
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#clojure" class="tag">
+          <span class="term">clojure</span>
+        </a>
+      </li>
+      
+      
+    </ul>
+  </div>
+
+  <p>A re-order buffer caches incoming items and releases them in chunks according to a (usually) time based sort order.
+Its role is to act as a stage in a data/ event flow to ensure that some downstream function receives events in the right order more of the time.</p>
+
+<p>Here we’ll talk through a couple of different implementations of a re-order buffer in Clojure - the first a bit more object orientated in style as I’d like something that exposes well through into Java code, and the second sticking more closely to the Clojure idiom and using lazy sequences.</p>
+
+<p>We’ll use the <strong>clj-time</strong> library throughout for all time based functionality. clj-time is a clojure wrapper over the widely used joda time java library.</p>
+
+<h1 id="1-first-design">1. First Design</h1>
+
+<p>The use-case for the re-order buffer where there is of an inbound flow of events which is (near) continuous and time sorted chunks are released only so often. The key settings of the re-order buffer are:</p>
+
+<p><strong>hold-for</strong>:- The least amount of time (in millis) that an item is to be held for before it can be released.</p>
+
+<p><strong>release-every</strong>:- The periodicity (in millis) of the release chunk operation.</p>
+
+<p><strong>keyfn</strong>:- A function that extracts the time based field to be used for sorting from each item.</p>
+
+<p><strong>func</strong>:- The function that is called on each items being released.</p>
+
+<p>The various pieces needed to assemble a re-order buffer are:</p>
+
+<ul>
+  <li>
+    <p>A cache to hold the items. A re-order buffer is a simple thing and there’s only one sort order which is specified upfront. Therefore, in this implementation it’s not necessary to go to the complexity of a database. While a chunk of sorted items are being released, we’ll block any additional updates so some synchronisation will be necessary. That synchronisation should only be for a brief amount of time, so as not to disrupt the inbound flow. Therefore we’ll make the choice to sort/ index on write and choose a data structure that supports fairly fast range queries.</p>
+  </li>
+  <li>
+    <p>A buffer to accept inbound items, for example when a chunk is being expired from the cache and released, but this will also allow for the re-order buffer to be thread safe.</p>
+  </li>
+  <li>
+    <p>A scheduler to trigger the chunk release event on the time interval specified in the <strong>release-every</strong> parameter</p>
+  </li>
+</ul>
+
+<h2 id="implementation">Implementation</h2>
+
+<p>Clojure has an appropriate abstraction for a cache of state that comes with built in synchronization - an agent. Agents come with a built in buffer, so we can use an agent to model the cache and the buffer together.
+First, let’s define a protocol for our Buffer. We need to be able to put items into the buffer, get it’s contents and (initially) stop the scheduler described above.
+We’ll represent the re-order buffer itself as a Clojure record, with the necessary fields describe behaviour. The main state of the reorder buffer, the set of items currently held, will be held in a Clojure sorted-set, which is based on an immutable TreeSeq.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nf">defprotocol</span><span class="w"> </span><span class="n">Buffer</span><span class="w">
+      </span><span class="s">"Protocol for a caching buffer"</span><span class="w">
+      </span><span class="p">(</span><span class="nf">put</span><span class="w"> </span><span class="p">[</span><span class="n">this</span><span class="w"> </span><span class="n">item</span><span class="p">])</span><span class="w">
+      </span><span class="p">(</span><span class="nf">fetch</span><span class="w"> </span><span class="p">[</span><span class="n">this</span><span class="p">])</span><span class="w">
+      </span><span class="p">(</span><span class="nf">stop</span><span class="w"> </span><span class="p">[</span><span class="n">this</span><span class="p">]))</span><span class="w">  
+    
+    </span><span class="p">(</span><span class="nf">defrecord</span><span class="w">
+      </span><span class="o">^</span><span class="p">{</span><span class="no">:doc</span><span class="w"> </span><span class="s">"Time based Re-order(ing) buffer. holdFor is the number
+         of milliseconds to hold each itme for. releaseEvery is
+         the interval, in milliseconds, at which the buffer is
+         flushed of items that have been held for long enough.
+         f is a function to be mapped over each item being released.
+         scheduluer is a java executor used to trigger the periodic
+         expiry events. cache is an agent synchronised sorted-set
+         used to hold the internal state."</span><span class="p">}</span><span class="w">
+      </span><span class="n">ReorderBuffer</span><span class="w"> </span><span class="p">[</span><span class="n">holdFor</span><span class="w"> </span><span class="n">releaseEvery</span><span class="w"> </span><span class="n">func</span><span class="w"> </span><span class="n">scheduler</span><span class="w"> </span><span class="n">cache</span><span class="p">]</span><span class="w">
+      </span><span class="n">Buffer</span><span class="w">
+      </span><span class="p">(</span><span class="nf">put</span><span class="w"> </span><span class="p">[</span><span class="n">_</span><span class="w"> </span><span class="n">item</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">send</span><span class="w"> </span><span class="n">cache</span><span class="w"> </span><span class="nb">conj</span><span class="w"> </span><span class="n">item</span><span class="p">))</span><span class="w">
+      </span><span class="p">(</span><span class="nf">fetch</span><span class="w"> </span><span class="p">[</span><span class="n">_</span><span class="p">]</span><span class="w"> </span><span class="err">@</span><span class="n">cache</span><span class="p">)</span><span class="w">
+      </span><span class="p">(</span><span class="nf">stop</span><span class="w"> </span><span class="p">[</span><span class="n">_</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nf">.interrupt</span><span class="w"> </span><span class="n">scheduler</span><span class="p">)))</span></code></pre></figure>
+
+<p>Next, lets define a scheduler that will set up a thread that sends a function to an agent every specified number of milliseconds. For this, we’ll use a java scheduled executor.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">send-periodically</span><span class="w">
+      </span><span class="s">"At the specified interval, periodically send a Clojure
+      reference type the function f"</span><span class="w">
+      </span><span class="p">[</span><span class="nb">ref</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="n">interval</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="nb">doto</span><span class="w"> </span><span class="p">(</span><span class="nf">Thread.</span><span class="w">
+             </span><span class="o">#</span><span class="p">(</span><span class="nf">try</span><span class="w">
+                </span><span class="p">(</span><span class="nf">while</span><span class="w"> </span><span class="p">(</span><span class="nb">not</span><span class="w"> </span><span class="p">(</span><span class="nf">.isInterrupted</span><span class="w"> </span><span class="p">(</span><span class="nf">Thread/currentThread</span><span class="p">)))</span><span class="w">
+                  </span><span class="p">(</span><span class="nf">Thread/sleep</span><span class="w"> </span><span class="n">interval</span><span class="p">)</span><span class="w">
+                  </span><span class="p">(</span><span class="nb">send</span><span class="w"> </span><span class="nb">ref</span><span class="w"> </span><span class="n">f</span><span class="p">))</span><span class="w">
+                </span><span class="p">(</span><span class="nf">catch</span><span class="w"> </span><span class="n">InterruptedException</span><span class="w"> </span><span class="n">_</span><span class="p">)))</span><span class="w">
+        </span><span class="p">(</span><span class="nf">.start</span><span class="p">)))</span></code></pre></figure>
+
+<p>The next step is to write a comparator for the sorted-set. There’s a gotcha here to be aware of; if the times of two items are equal, since it’s a set, then one will be lost. So it’s important to handle the equal in time case and provide another way of (randomly) comparing.</p>
+
+<p>We need a function that partitions the set inside the agent into items that are to be kept and those that have ‘expired’ and should have the supplied function mapped over them.</p>
+
+<p>First of all we need a function that will partition the set inside the agent into what is to be kept and what to be expired, and map the supplied function over what is to be expired. We may change that ‘map’ later to be a later bit more flexible and also for reduces as well to allow for the collection of chunks - for example rolling averages in an analytics use case.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">comp-fn</span><span class="w">
+      </span><span class="s">"Comparator for a sorted-set"</span><span class="w">
+      </span><span class="p">[</span><span class="n">keyfn</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="p">]</span><span class="w">
+        </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">c</span><span class="w"> </span><span class="p">(</span><span class="nf">compare</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">y</span><span class="p">))]</span><span class="w">
+          </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">not=</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+            </span><span class="n">c</span><span class="w">
+            </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="w">
+              </span><span class="mi">0</span><span class="w">
+              </span><span class="mi">1</span><span class="p">)))))</span><span class="w">
+    
+    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">expire</span><span class="w">
+      </span><span class="s">"Expire items from s which are older than hold-for and call
+       f on each"</span><span class="w">
+      </span><span class="p">[</span><span class="n">s</span><span class="w"> </span><span class="n">hold-for</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="n">keyfn</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">parts</span><span class="w"> </span><span class="p">(</span><span class="nb">split-with</span><span class="w">
+                   </span><span class="o">#</span><span class="p">(</span><span class="nf">t/before?</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">%</span><span class="p">)</span><span class="w">
+                               </span><span class="p">(</span><span class="nb">-&gt;</span><span class="w"> </span><span class="n">hold-for</span><span class="w"> </span><span class="n">t/millis</span><span class="w"> </span><span class="n">t/ago</span><span class="p">))</span><span class="w"> </span><span class="n">s</span><span class="p">)]</span><span class="w">
+        </span><span class="p">(</span><span class="nb">doall</span><span class="w"> </span><span class="p">(</span><span class="nb">map</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="p">(</span><span class="nb">first</span><span class="w"> </span><span class="n">parts</span><span class="p">)))</span><span class="w">
+        </span><span class="p">(</span><span class="nb">into</span><span class="w"> </span><span class="p">(</span><span class="nf">sorted-set-by</span><span class="w"> </span><span class="p">(</span><span class="nf">comp-fn</span><span class="w"> </span><span class="n">keyfn</span><span class="p">))</span><span class="w"> </span><span class="p">(</span><span class="nb">second</span><span class="w"> </span><span class="n">parts</span><span class="p">))))</span></code></pre></figure>
+
+<p>Almost finished! Now we need a function to act as the constructor of the re-order buffer and set up the internal members that we built earlier: the cache and scheduler.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">reorder-buffer</span><span class="w">
+      </span><span class="s">"Creates a ReorderBuffer which hold items for hold-off and has
+      expiry events every release every millis. Expired items have f
+      called on them. keyfn is used to retrieve the time of each
+      item"</span><span class="w">
+      </span><span class="p">[</span><span class="n">keyfn</span><span class="w"> </span><span class="n">hold-for</span><span class="w"> </span><span class="n">release-every</span><span class="w"> </span><span class="n">f</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">ag</span><span class="w"> </span><span class="p">(</span><span class="nb">agent</span><span class="w"> </span><span class="p">(</span><span class="nf">sorted-set-by</span><span class="w"> </span><span class="p">(</span><span class="nf">comp-fn</span><span class="w"> </span><span class="n">keyfn</span><span class="p">)))</span><span class="w">
+            </span><span class="n">sched</span><span class="w"> </span><span class="p">(</span><span class="nf">send-periodically</span><span class="w"> </span><span class="n">ag</span><span class="w">
+                                     </span><span class="o">#</span><span class="p">(</span><span class="nf">expire</span><span class="w"> </span><span class="n">%</span><span class="w"> </span><span class="n">hold-for</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="n">keyfn</span><span class="p">)</span><span class="w">
+                                     </span><span class="n">release-every</span><span class="p">)]</span><span class="w">
+        </span><span class="p">(</span><span class="nf">-&gt;ReorderBuffer</span><span class="w"> </span><span class="n">hold-for</span><span class="w"> </span><span class="n">release-every</span><span class="w"> </span><span class="n">f</span><span class="w"> </span><span class="n">sched</span><span class="w"> </span><span class="n">ag</span><span class="p">)))</span></code></pre></figure>
+
+<p>Let’s test the functionality..</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">stream-of-maps</span><span class="w">
+      </span><span class="s">"Function to stimulate a stream of maps of the form..
+       {:t *a joda date time* :id *random int*
+       :t is the upper limit for the random numnber of millis for
+       how far behind now :t is set to."</span><span class="w">
+      </span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="nf">lazy-seq</span><span class="w">
+       </span><span class="p">(</span><span class="nf">Thread/sleep</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">50</span><span class="p">))</span><span class="w">
+       </span><span class="p">(</span><span class="nb">cons</span><span class="w"> </span><span class="p">{</span><span class="no">:t</span><span class="w"> </span><span class="p">(</span><span class="nf">t/minus</span><span class="w"> </span><span class="p">(</span><span class="nf">t/now</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">t/millis</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="n">t</span><span class="p">)))</span><span class="w">
+              </span><span class="no">:id</span><span class="w"> </span><span class="p">(</span><span class="nb">+</span><span class="w"> </span><span class="mi">1000</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">200</span><span class="p">))}</span><span class="w"> </span><span class="p">(</span><span class="nf">stream-of-maps</span><span class="w"> </span><span class="n">t</span><span class="p">))))</span><span class="w">
+    
+    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">make-rob</span><span class="w"> </span><span class="p">[]</span><span class="w"> </span><span class="p">(</span><span class="nf">reorder-buffer</span><span class="w"> </span><span class="no">:t</span><span class="w"> </span><span class="mi">30000</span><span class="w"> </span><span class="mi">5000</span><span class="w"> </span><span class="nb">println</span><span class="p">))</span><span class="w">
+    
+    </span><span class="p">(</span><span class="k">def</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="p">(</span><span class="nf">make-rob</span><span class="p">))</span></code></pre></figure>
+
+<p>Let’s have a look at the stream of data generated by stream-of-maps:</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="p">(</span><span class="nf">stream-of-maps</span><span class="w"> </span><span class="mi">100</span><span class="p">))</span></code></pre></figure>
+
+<p>results in:</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1002</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">165210</span><span class="n">f2</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.814Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1190</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">39837479</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.822Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1007</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">6</span><span class="n">efae05a</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.847Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1140</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">68</span><span class="n">ee252d</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.833Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1004</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">6</span><span class="n">ebd6d42</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.937Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1022</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">4</span><span class="n">c3ffc50</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.894Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1114</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">75</span><span class="n">fe2dbd</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.960Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1043</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">6</span><span class="n">ca0b962</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.930Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1186</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">69</span><span class="n">f21ec9</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:15.996Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1166</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">5</span><span class="n">a1ca2db</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T11</span><span class="no">:29:16.086Z&gt;</span><span class="p">})</span></code></pre></figure>
+
+<p>Which is not perfectly sorted.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">map</span><span class="w"> </span><span class="o">#</span><span class="p">(</span><span class="nf">put</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="n">%</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="p">(</span><span class="nf">stream-of-maps</span><span class="w"> </span><span class="mi">25000</span><span class="p">)))</span></code></pre></figure>
+
+<p>results in:</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1156</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">13</span><span class="n">e8b50b</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:17.387Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1011</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">3</span><span class="n">b5d265d</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:18.134Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1026</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">796401</span><span class="n">f6</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:25.529Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1074</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">6</span><span class="n">db8b4a7</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:27.048Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1176</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">74</span><span class="n">c6b01f</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:27.464Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1118</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">73</span><span class="n">af3a94</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:30.008Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1198</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">26</span><span class="n">fb0553</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:33.734Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1118</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">70</span><span class="n">edb6a8</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:36.718Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1089</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">5</span><span class="n">e63930b</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:38.337Z&gt;</span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1129</span><span class="n">,</span><span class="w">
+     </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">673</span><span class="n">a8a59</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T14</span><span class="no">:42:39.403Z&gt;</span><span class="p">}</span></code></pre></figure>
+
+<p>which is fully sorted.
+(In the Clojure repl, the results arrive in chunks over a 30 second period).</p>
+
+<h2 id="improvements">Improvements</h2>
+
+<p>There’s something that I’d don’t like and would want to improve on:</p>
+
+<ul>
+  <li>An immutable data structure, the internal sorted-set, is not an ideal data structure for something that we’d like to be performant. Since it’s hidden away inside the agent, and synchronised, there’s no risks if we convert it to a mutable data structure.</li>
+</ul>
+
+<p>We’ll leave this for now and show how to fix it in the functional version.</p>
+
+<h1 id="2-functional-version">2. Functional version</h1>
+
+<p>In the functional version of the reorder buffer, we’ll stick closely to the Clojure idiom of functions working over sequences. That is going to make our code a bit more sparse.
+In the OO version, we built a little machine to do the job that we needed it to. In this version, that’s not the case; any state is hidden inside our functions. Another key difference is that in the functional version, sequences are ‘pulled through’ our stateful processing functions, as opposed to being pushed into the little machine to do its job.</p>
+
+<p>My first attempt (something of a deviation) is to batch the stream into time chunks..</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">time-batch</span><span class="w">
+      </span><span class="s">"Returns a lazy sequence of lists of items, each list holding
+      all items consumed from coll in the time interval. Expected
+      usage is to partition a stream/ lazy-seq into time based
+      windows. Interval is specified in milliseconds."</span><span class="w">
+      </span><span class="p">[</span><span class="n">interval</span><span class="w"> </span><span class="n">coll</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="nf">lazy-seq</span><span class="w">
+       </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">p</span><span class="w"> </span><span class="p">(</span><span class="nf">promise</span><span class="p">)</span><span class="w">
+             </span><span class="n">dl</span><span class="w"> </span><span class="p">(</span><span class="nf">System/currentTimeMillis</span><span class="p">)]</span><span class="w">
+         </span><span class="p">(</span><span class="nf">future</span><span class="w">
+           </span><span class="p">(</span><span class="nf">deliver</span><span class="w"> </span><span class="n">p</span><span class="w">
+                    </span><span class="p">(</span><span class="nb">doall</span><span class="w">
+                     </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">stop-at</span><span class="w"> </span><span class="p">(</span><span class="nb">+</span><span class="w"> </span><span class="n">interval</span><span class="w">
+                                      </span><span class="p">(</span><span class="nf">System/currentTimeMillis</span><span class="p">))]</span><span class="w">
+                       </span><span class="p">(</span><span class="nb">take-while</span><span class="w">
+                        </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">_</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">&lt;</span><span class="w"> </span><span class="p">(</span><span class="nf">System/currentTimeMillis</span><span class="p">)</span><span class="w">
+			           </span><span class="n">stop-at</span><span class="p">))</span><span class="w">
+                        </span><span class="n">coll</span><span class="p">)))))</span><span class="w">
+         </span><span class="p">(</span><span class="nb">cons</span><span class="w"> </span><span class="err">@</span><span class="n">p</span><span class="w">
+	       </span><span class="p">(</span><span class="nf">time-batch</span><span class="w"> </span><span class="n">interval</span><span class="w"> </span><span class="p">(</span><span class="nb">nthrest</span><span class="w"> </span><span class="n">coll</span><span class="w"> </span><span class="p">(</span><span class="nb">count</span><span class="w"> </span><span class="err">@</span><span class="n">p</span><span class="p">)))))))</span></code></pre></figure>
+
+<p>We do this by building a lazy sequence over the input collection, <strong>coll</strong>. Each item in the lazy sequence is a promise. A future is started which takes items from coll until the number of milliseconds specified in <strong>interval</strong> has elapsed. Then it delivers them back to the promise - so realising a chunk, and the process repeats.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="c1">;; We need a function to test it
+</span><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">sim-stream</span><span class="w">
+      </span><span class="s">"function to stimulate a stream"</span><span class="w">
+      </span><span class="p">[]</span><span class="w">
+      </span><span class="p">(</span><span class="nf">lazy-seq</span><span class="w">
+       </span><span class="p">(</span><span class="nf">Thread/sleep</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">30</span><span class="p">))</span><span class="w">
+       </span><span class="p">(</span><span class="nb">cons</span><span class="w"> </span><span class="p">(</span><span class="nb">rand-int</span><span class="w"> </span><span class="mi">50</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">sim-stream</span><span class="p">))))</span><span class="w">
+    
+    </span><span class="c1">;; Test it!
+</span><span class="w">    </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="p">(</span><span class="nf">time-batch</span><span class="w"> </span><span class="mi">200</span><span class="w"> </span><span class="p">(</span><span class="nf">sim-stream</span><span class="p">)))</span></code></pre></figure>
+
+<p>results in:</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">((</span><span class="nf">39</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="mi">35</span><span class="w"> </span><span class="mi">34</span><span class="w"> </span><span class="mi">49</span><span class="w"> </span><span class="mi">26</span><span class="w"> </span><span class="mi">21</span><span class="w"> </span><span class="mi">28</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="mi">25</span><span class="w"> </span><span class="mi">37</span><span class="p">)</span><span class="w">
+     </span><span class="p">(</span><span class="nf">13</span><span class="w"> </span><span class="mi">38</span><span class="w"> </span><span class="mi">15</span><span class="w"> </span><span class="mi">41</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="mi">30</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="mi">15</span><span class="w"> </span><span class="mi">41</span><span class="w"> </span><span class="mi">30</span><span class="w"> </span><span class="mi">37</span><span class="w"> </span><span class="mi">13</span><span class="w"> </span><span class="mi">18</span><span class="p">)</span><span class="w">
+     </span><span class="p">(</span><span class="nf">45</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="mi">34</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="mi">35</span><span class="w"> </span><span class="mi">22</span><span class="w"> </span><span class="mi">40</span><span class="w"> </span><span class="mi">45</span><span class="w"> </span><span class="mi">26</span><span class="w"> </span><span class="mi">47</span><span class="w"> </span><span class="mi">17</span><span class="w"> </span><span class="mi">40</span><span class="w"> </span><span class="mi">22</span><span class="w"> </span><span class="mi">6</span><span class="w"> </span><span class="mi">41</span><span class="p">)</span><span class="w">
+     </span><span class="p">(</span><span class="nf">27</span><span class="w"> </span><span class="mi">11</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="mi">45</span><span class="w"> </span><span class="mi">23</span><span class="w"> </span><span class="mi">27</span><span class="w"> </span><span class="mi">43</span><span class="w"> </span><span class="mi">29</span><span class="w"> </span><span class="mi">15</span><span class="w"> </span><span class="mi">43</span><span class="w"> </span><span class="mi">18</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="mi">14</span><span class="w"> </span><span class="mi">36</span><span class="w"> </span><span class="mi">9</span><span class="p">))</span></code></pre></figure>
+
+<p><strong>sim-stream</strong> is a function to simulate a stream of events generated at various points in time.
+Well, it works just fine but doesn’t have the functionality that a re-order buffer should.</p>
+
+<p>Let’s have another go - this time with a stateful transducer.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">reorder</span><span class="w">
+      </span><span class="s">"Creates a transducer that chunks and reorders inbound items.
+       Inbound items should be clojure maps. Reording is determined
+       by keyfn, which specifies a key in each map. Optionally, a
+       comparison function can be supplied with the keyword argument
+       :comp-fn. Chunking is determined by window-fn which should
+       take just one arg and is called on each inbound item. It's
+       result should be a value, which items with a keyfn of less
+       than, are released (as a chunk).
+       A higher degree of reordering will be achieved with window
+       functions that have a larger range.
+       For when used as a transducer on a core.async channel, if a
+       :flush signal is received, will flush contents of the cache."</span><span class="w">
+      </span><span class="p">[</span><span class="n">keyfn</span><span class="w"> </span><span class="n">windowfn</span><span class="w">
+       </span><span class="o">&amp;</span><span class="w"> </span><span class="p">{</span><span class="no">:keys</span><span class="w"> </span><span class="p">[</span><span class="n">comp-fn</span><span class="p">]</span><span class="w">
+          </span><span class="no">:or</span><span class="w"> </span><span class="p">{</span><span class="n">comp-fn</span><span class="w"> </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="p">]</span><span class="w">
+                         </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">c</span><span class="w"> </span><span class="p">(</span><span class="nf">compare</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">y</span><span class="p">))]</span><span class="w">
+                           </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">not=</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="n">c</span><span class="w">
+                               </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">1</span><span class="p">))))}}]</span><span class="w">
+       </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">rf</span><span class="p">]</span><span class="w">
+         </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">cached</span><span class="w"> </span><span class="p">(</span><span class="nf">volatile!</span><span class="w"> </span><span class="p">(</span><span class="nf">sorted-set-by</span><span class="w"> </span><span class="n">comp-fn</span><span class="p">))]</span><span class="w">
+           </span><span class="p">(</span><span class="k">fn</span><span class="w">
+             </span><span class="p">([]</span><span class="w"> </span><span class="p">(</span><span class="nf">rf</span><span class="p">))</span><span class="w">                          </span><span class="c1">;; init arity
+</span><span class="w">             </span><span class="p">([</span><span class="n">result</span><span class="p">]</span><span class="w">                          </span><span class="c1">;; completion arity
+</span><span class="w">              </span><span class="p">(</span><span class="nf">rf</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="p">(</span><span class="nb">apply</span><span class="w"> </span><span class="nb">list</span><span class="w"> </span><span class="err">@</span><span class="n">cached</span><span class="p">)))</span><span class="w"> </span><span class="c1">;; ..add leftovers
+</span><span class="w">             </span><span class="p">([</span><span class="n">result</span><span class="w"> </span><span class="n">input</span><span class="p">]</span><span class="w">                    </span><span class="c1">;; reduction arity
+</span><span class="w">              </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="no">:flush</span><span class="p">)</span><span class="w">
+                </span><span class="p">(</span><span class="nf">do</span><span class="w">
+                  </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="nb">flush</span><span class="w"> </span><span class="p">(</span><span class="nb">apply</span><span class="w"> </span><span class="nb">list</span><span class="w"> </span><span class="err">@</span><span class="n">cached</span><span class="p">)]</span><span class="w">
+                    </span><span class="p">(</span><span class="nf">vreset!</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="p">(</span><span class="nf">sorted-set-by</span><span class="w"> </span><span class="n">comp-fn</span><span class="p">))</span><span class="w">
+                    </span><span class="p">(</span><span class="nf">rf</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="nb">flush</span><span class="p">)))</span><span class="w">
+                </span><span class="p">(</span><span class="nf">do</span><span class="w"> </span><span class="p">(</span><span class="nf">vswap!</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="nb">conj</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w">
+                    </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">pivot</span><span class="w"> </span><span class="p">{</span><span class="n">keyfn</span><span class="w"> </span><span class="p">(</span><span class="nf">windowfn</span><span class="w"> </span><span class="n">input</span><span class="p">)}</span><span class="w">
+                          </span><span class="n">ex</span><span class="w"> </span><span class="p">(</span><span class="nf">not-empty</span><span class="w"> </span><span class="p">(</span><span class="nf">subseq</span><span class="w"> </span><span class="err">@</span><span class="n">cached</span><span class="w"> </span><span class="nb">&lt;</span><span class="w"> </span><span class="n">pivot</span><span class="p">))]</span><span class="w">
+                      </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="n">ex</span><span class="w">                    </span><span class="c1">;; add expirees
+</span><span class="w">                        </span><span class="p">(</span><span class="nf">do</span><span class="w"> </span><span class="p">(</span><span class="nb">doseq</span><span class="w"> </span><span class="p">[</span><span class="n">e</span><span class="w"> </span><span class="n">ex</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nf">vswap!</span><span class="w"> </span><span class="n">cached</span><span class="w"> </span><span class="nb">disj</span><span class="w"> </span><span class="n">e</span><span class="p">))</span><span class="w">
+                            </span><span class="p">(</span><span class="nf">rf</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="n">ex</span><span class="p">))</span><span class="w">
+                        </span><span class="p">(</span><span class="nf">rf</span><span class="w"> </span><span class="n">result</span><span class="p">))))))))))</span><span class="w">    </span><span class="c1">;; just pass along
+</span><span class="w">    
+    </span><span class="c1">;; *Some Example window functions*
+</span><span class="w">    </span><span class="c1">;; for maps of the form {:t joda-time :id an integer ....}
+</span><span class="w">    
+    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">time-window</span><span class="w">
+      </span><span class="s">"A window function for re-ordering by time. The current item
+       is ignored. Items with a :t (in example maps) of more than
+       window milliseconds before prior will be released."</span><span class="w">
+      </span><span class="p">[</span><span class="n">window</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">_</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nf">t/minus</span><span class="w"> </span><span class="p">(</span><span class="nf">t/now</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">t/millis</span><span class="w"> </span><span class="n">window</span><span class="p">))))</span><span class="w">
+    
+    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">id-win</span><span class="w">
+      </span><span class="s">"A window function for re-ordering by :id (in example maps).
+       Will cause any cached items with an id than is *window* less
+       than the id of the current item to be released."</span><span class="w">
+      </span><span class="p">[</span><span class="n">window</span><span class="p">]</span><span class="w">
+      </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">item</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nb">-</span><span class="w"> </span><span class="p">(</span><span class="no">:id</span><span class="w"> </span><span class="n">item</span><span class="p">)</span><span class="w"> </span><span class="n">window</span><span class="p">)))</span></code></pre></figure>
+
+<p>This is worth going through step by step.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">{</span><span class="n">comp-fn</span><span class="w"> </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="p">]</span><span class="w">
+               </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">c</span><span class="w"> </span><span class="p">(</span><span class="nf">compare</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nf">keyfn</span><span class="w"> </span><span class="n">y</span><span class="p">))]</span><span class="w">
+                 </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">not=</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="n">c</span><span class="w">
+                     </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="mi">1</span><span class="p">))))}</span></code></pre></figure>
+
+<p>This is where we set up a default comparison function that controls the internal order of sorting amongst items cached inside the transdcuer.</p>
+
+<p>Transducers are worth spending a little time on, although there’s a wealth of material on the web for deeper explanations. The pattern for a transducer function looks something like this..</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="k">defn</span><span class="w"> </span><span class="n">my-transducer</span><span class="w">
+      </span><span class="p">[</span><span class="n">*some</span><span class="w"> </span><span class="n">args*</span><span class="p">]</span><span class="w">
+       </span><span class="p">(</span><span class="k">fn</span><span class="w"> </span><span class="p">[</span><span class="n">rf</span><span class="p">]</span><span class="w">  </span><span class="c1">;; &lt;- rf means 'reducing function'
+</span><span class="w">         </span><span class="p">(</span><span class="k">let</span><span class="w"> </span><span class="p">[</span><span class="n">my-cache</span><span class="w"> </span><span class="p">(</span><span class="nf">*set</span><span class="w"> </span><span class="nb">up</span><span class="w"> </span><span class="n">internal</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="n">here*</span><span class="p">)]</span><span class="w">
+           </span><span class="p">(</span><span class="k">fn</span><span class="w">
+             </span><span class="p">([]</span><span class="w"> </span><span class="p">(</span><span class="nf">rf</span><span class="p">))</span><span class="w">                          </span><span class="c1">;; init arity
+</span><span class="w">             </span><span class="p">([</span><span class="n">result</span><span class="p">]</span><span class="w"> </span><span class="p">(</span><span class="nf">rf</span><span class="w"> </span><span class="n">result</span><span class="p">))</span><span class="w">             </span><span class="c1">;; completion arity
+</span><span class="w">             </span><span class="p">([</span><span class="n">result</span><span class="w"> </span><span class="n">input</span><span class="p">]</span><span class="w">                    </span><span class="c1">;; reduction arity
+</span><span class="w">              </span><span class="p">(</span><span class="nf">..*do</span><span class="w"> </span><span class="n">something</span><span class="w"> </span><span class="n">with</span><span class="w"> </span><span class="n">the</span><span class="w"> </span><span class="n">input,</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">&amp;</span><span class="w">
+                     </span><span class="n">pass</span><span class="w"> </span><span class="n">along</span><span class="w"> </span><span class="nb">into</span><span class="w"> </span><span class="n">the</span><span class="w"> </span><span class="nb">next</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="n">here*</span><span class="p">))))))</span></code></pre></figure>
+
+<p>A transducer returns a function that itself takes a reducing function. e.g. in the reduce call that may be more familiar</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">(</span><span class="nb">reduce</span><span class="w"> </span><span class="nb">+</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="mi">4</span><span class="p">])</span></code></pre></figure>
+
+<p>’+’ is the reducing function. Rather than ‘+’ for our reorder transducer we’ll use ‘conj’ as we’ll see later on.
+Inside the inner function, there is a clear strucutre for transducers. First we set up some internal store of state if required; not all transducers need be stateful.
+Next there is a function that has three arities, known as the init arity, the completion arity and the reduction arity. The simplest way I found to think of these is as ‘handlers’ for the three scenarios that a transducer can be used for while processing a sequence: init - before the first element is processed when we just have the rf available to us, at the termination of the sequence, in case there is some clean-up to do, as there is in re-order when we flush any items left in the cache and conj them onto the end of the output sequence. Finally, in the reduction arity there is where you would write your standard function that handles the result (or ‘accumulator’ of the reduction so far) and the (new) input and outputs the result to be used in the next step.</p>
+
+<p>Now that the scaffolding that a transducer comes with is clearer, the rest of the code is pretty easy to make out.</p>
+
+<ol>
+  <li>When a new item comes in it’s cached.</li>
+  <li>Then the result of the window-fn is checked and any cached items that meet the criteria for expiry are tacked onto the end of the created/ output sequence (and flushed from the cache).</li>
+  <li>Finally when the incoming sequence has terminated, then the remaining items in the cache are tacked onto the end of the output sequence.</li>
+  <li>The cache in this is sorted by the <strong>keyfn</strong> supplied - this makes the range/ <strong>subseq</strong> style selections to pick up items to be expired performant.</li>
+</ol>
+
+<p>So, a transducer is a functions that takes in a reducing function, e.g. ‘conj’ and outputs another, in our case considerably more complex, reducing function - and so on.
+Transducers therefore have a couple of nice advantages over the standard Clojure idiom of mapping, reducing and filtering over sequences:</p>
+
+<ul>
+  <li>
+    <p>Transducers are separate from the sequence that they are then applied to. They can work over any sequence, including a core.async channel and according to that, the evalutation style can be lazy or eager; that can be determined separately from the transducer.</p>
+  </li>
+  <li>
+    <p>Multiple transducers are chained together to make one, final reducing function .. which is then applied over the target sequence. This is as opposed to applying a function to a collection, getting a new collection out, then applying the next function over that, and so on …   This means that for any serious work that transducers, without the need to have intermediate collections created, are much more performant.</p>
+  </li>
+</ul>
+
+<p>Transducers might not phase a Haskeller, but the Clojure community justifyibly thinks they’re pretty cool!</p>
+
+<p>Let’s test it!</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="c1">;; let test by applying the transducer over a sequence
+</span><span class="w">    </span><span class="p">(</span><span class="nf">transduce</span><span class="w">
+     </span><span class="p">(</span><span class="nf">reorder</span><span class="w"> </span><span class="no">:t</span><span class="w"> </span><span class="p">(</span><span class="nf">time-window</span><span class="w"> </span><span class="mi">100</span><span class="p">))</span><span class="w">
+     </span><span class="nb">conj</span><span class="w">
+     </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="p">(</span><span class="nf">stream-of-maps</span><span class="w"> </span><span class="mi">100</span><span class="p">)))</span></code></pre></figure>
+
+<p>results in:</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="p">[({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1098</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">6</span><span class="n">f7e7c56</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:25.883Z&gt;</span><span class="p">}</span><span class="w">
+      </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1074</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">1192</span><span class="n">e3f9</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:25.901Z&gt;</span><span class="p">})</span><span class="w">
+     </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1051</span><span class="n">,</span><span class="w">
+       </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">624</span><span class="n">d052a</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:25.919Z&gt;</span><span class="p">})</span><span class="w">
+     </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1155</span><span class="n">,</span><span class="w">
+       </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">15</span><span class="n">e45166</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:25.968Z&gt;</span><span class="p">})</span><span class="w">
+     </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1046</span><span class="n">,</span><span class="w">
+       </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">2</span><span class="n">ba0b95b</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:25.995Z&gt;</span><span class="p">}</span><span class="w">
+      </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1126</span><span class="n">,</span><span class="w">
+       </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">67</span><span class="n">f289ca</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:26.012Z&gt;</span><span class="p">})</span><span class="w">
+     </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1193</span><span class="n">,</span><span class="w">
+       </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">678086</span><span class="n">d9</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:26.069Z&gt;</span><span class="p">}</span><span class="w">
+      </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1027</span><span class="n">,</span><span class="w">
+       </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">5058942</span><span class="n">e</span><span class="w"> </span><span class="mi">2016-11-14</span><span class="n">T13</span><span class="no">:55:26.122Z&gt;</span><span class="p">})]</span></code></pre></figure>
+
+<p>As you can see, the reorder-buffer results in a time sorting that is much better than the input sequence generated by sim-stream2. The larger the time window, the better that we could expect the buffer to perform. In real-world usage, you’d tune the time window to the out-of-order-ness of the incoming stream and the requirements that the next step in the processing chain has to receive the data quickly enough.
+Notice that the results arrive in chunks - e.g. an initial chunk of 2, then a 1 etc …</p>
+
+<p>Since we’d expect to use a re-order buffer in over a real stream, there’s one final test to do, which is to put it over a core.async channel and see how it works.</p>
+
+<figure class="highlight"><pre><code class="language-clojure" data-lang="clojure"><span class="w">    </span><span class="c1">;; create a core.async channel
+</span><span class="w">    </span><span class="p">(</span><span class="k">def</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="p">(</span><span class="nf">a/chan</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="p">(</span><span class="nf">reorder</span><span class="w"> </span><span class="no">:t</span><span class="w"> </span><span class="p">(</span><span class="nf">time-window</span><span class="w"> </span><span class="mi">200</span><span class="p">))))</span><span class="w">
+
+
+    </span><span class="c1">;; set up a go block to print each item received
+</span><span class="w">    </span><span class="p">(</span><span class="nf">go</span><span class="w"> </span><span class="p">(</span><span class="nb">loop</span><span class="w"> </span><span class="p">[</span><span class="n">n</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="w">
+          </span><span class="p">(</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">&lt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="mi">50</span><span class="p">)</span><span class="w">
+            </span><span class="p">(</span><span class="nf">do</span><span class="w">
+              </span><span class="p">(</span><span class="nb">println</span><span class="w"> </span><span class="p">(</span><span class="nf">a/&lt;!</span><span class="w"> </span><span class="n">c</span><span class="p">))</span><span class="w">
+              </span><span class="p">(</span><span class="nf">recur</span><span class="w"> </span><span class="p">(</span><span class="nb">inc</span><span class="w"> </span><span class="n">n</span><span class="p">)))</span><span class="w">
+            </span><span class="p">(</span><span class="nf">a/close!</span><span class="w"> </span><span class="n">c</span><span class="p">))))</span><span class="w">
+    
+    </span><span class="c1">;; place a number of random maps onto the channel
+</span><span class="w">    </span><span class="p">(</span><span class="nf">a/onto-chan</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="p">(</span><span class="nb">take</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="p">(</span><span class="nf">stream-of-maps</span><span class="w"> </span><span class="mi">100</span><span class="p">))</span><span class="w"> </span><span class="n">false</span><span class="p">)</span><span class="w">
+    
+    </span><span class="c1">;; results =&gt;
+</span><span class="w">    </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1117</span><span class="n">,</span><span class="w"> </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">16</span><span class="n">b14ab1</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.602Z&gt;</span><span class="p">})</span><span class="w">
+    </span><span class="c1">;; one was flushed out
+</span><span class="w">    
+    </span><span class="c1">;; let's test :flush
+</span><span class="w">    </span><span class="p">(</span><span class="nf">a/&gt;!!</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="no">:flush</span><span class="p">)</span><span class="w">
+    
+    </span><span class="c1">;; results =&gt;
+</span><span class="w">    </span><span class="p">({</span><span class="no">:id</span><span class="w"> </span><span class="mi">1151</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="n">c00da66</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.658Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1035</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">10</span><span class="n">c977c3</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.666Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1013</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">74016064</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.687Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1193</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">410</span><span class="n">d6c28</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.708Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1195</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">4</span><span class="n">bd45d85</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.717Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1109</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">10</span><span class="n">f84c53</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.747Z&gt;</span><span class="p">}</span><span class="w">
+     </span><span class="p">{</span><span class="no">:id</span><span class="w"> </span><span class="mi">1013</span><span class="n">,</span><span class="w">
+      </span><span class="no">:t</span><span class="w"> </span><span class="o">#</span><span class="n">&lt;DateTime</span><span class="err">@</span><span class="mi">6</span><span class="n">f050c68</span><span class="w"> </span><span class="mi">2016-11-19</span><span class="n">T22</span><span class="no">:37:59.818Z&gt;</span><span class="p">})</span><span class="w">
+    </span><span class="err">;;</span><span class="w"> </span><span class="nb">and</span><span class="w"> </span><span class="n">the</span><span class="w"> </span><span class="nb">rest</span></code></pre></figure>
+
+
+
+  <!-- Share -->
+  
+  <div class="post-share">
+    <hr>
+    <span>Share this: <br /></span>
+<a href="https://www.facebook.com/sharer/sharer.php?u=http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-facebook"></a>
+<a href="https://twitter.com/intent/tweet?text=A re-order buffer in Clojure&url=http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-twitter"></a>
+<a href="https://plus.google.com/share?url=http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-google-plus"></a>
+<a href="https://www.tumblr.com/share?url=http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-tumblr"></a>
+<a href="mailto:?subject=A re-order buffer in Clojure&amp;body=Check out this site http://localhost:4000/blog/2016-12-12/clojure-re-order-buffer/" class="ssk ssk-icon ssk-email"></a>
+
+    <hr>
+  </div>
+  
+
+  <!-- Disqus -->
+  
+  <section id="disqus_thread"></section>
+  <script>
+
+/**
+*  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+*  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+var d = document, s = d.createElement('script');
+s.src = '//https-judepayne-github-io-blog.disqus.com/embed.js';
+s.setAttribute('data-timestamp', +new Date());
+(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+  
+
+</div>
+
+
+    <!-- Documents about icons are here: http://fontawesome.io/icons/ -->
+<div class="footer">
+	<hr />
+	<div class="footer-link">
+		
+
+		
+
+		
+		<a href="https://github.com/judepayne"><i class="fa fa-github" aria-hidden="true"></i></a>
+		
+
+		
+		<a href="https://www.linkedin.com/in/jude-payne-16576114"><i class="fa fa-linkedin" aria-hidden="true"></i></a>
+		
+
+		
+
+		
+
+		
+		<a href="mailto:judepayne@yahoo.co.uk"><i class="fa fa-envelope" aria-hidden="true"></i></a>
+		
+
+	</div>
+	© 2016 Jude Payne. All rights reserved.
+</div>
+
+  </div>
+</body>
+</html>
