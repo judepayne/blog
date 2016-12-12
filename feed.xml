@@ -297,7 +297,7 @@ Now let’s get to the main event, the stream processor itself.&lt;/p&gt;
 
 &lt;p&gt;Here’s the topology of the toy processor:&lt;/p&gt;
 
-&lt;p&gt;&lt;img src=&quot;http://localhost:4000/blog/images/toy1.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;http://localhost:4000/images/toy1.svg&quot; alt=&quot;&quot; /&gt;&lt;/p&gt;
 
 &lt;p&gt;All stream processors arrange their calculations in a topology, or ‘graph’. To describe any topology, we only need four relationships between nodes in the toplogy:&lt;/p&gt;
 
