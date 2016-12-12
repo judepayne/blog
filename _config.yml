@@ -19,7 +19,7 @@ google-analytics:
 
 # Disqus
 disqus:
-  id:               "disqus_c3tikh7C04"
+  id:               "https-judepayne-github-io-blog"
 
 # URL
 #url:                "https://judepayne.github.io/blog" # the base hostname & protocol for your site
