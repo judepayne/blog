@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Principles of completeness and accuracy</title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/blog/assets/css/main.css" type="text/css">
+  <link rel="stylesheet" href="/blog/assets/css/social-share-kit.css" type="text/css">
+
+  <!-- Font -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css">
+
+
+  <link rel="alternate" type="application/rss+xml" title="RSS Feed for Afunctional blog" href="/blog/feed.xml" />
+  <!-- Begin Jekyll SEO tag v2.1.0 -->
+<title>Principles of completeness and accuracy - Afunctional blog</title>
+<meta property="og:title" content="Principles of completeness and accuracy" />
+<meta name="description" content="In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy." />
+<meta property="og:description" content="In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy." />
+<link rel="canonical" href="http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" />
+<meta property="og:url" content="http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" />
+<meta property="og:site_name" content="Afunctional blog" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2016-12-14T21:46:04+00:00" />
+<script type="application/ld+json">
+{"@context": "http://schema.org",
+"@type": "BlogPosting",
+"headline": "Principles of completeness and accuracy",
+"datePublished": "2016-12-14T21:46:04+00:00",
+"description": "In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy.",
+"url": "http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/"}</script>
+<!-- End Jekyll SEO tag -->
+
+
+
+  <!-- Google Analytics -->
+
+<script>
+(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+ga('create', '', 'auto');
+ga('send', 'pageview');
+
+</script>
+
+
+
+</head>
+
+<body>
+  <div class="content-container">
+    <header>
+  <h1 class="header-small">
+    <a href="http://localhost:4000/blog/">Afunctional blog</a>
+  </h1>
+</header>
+<div class="post">
+  <h1 class="post-title">Principles of completeness and accuracy</h1>
+  <span class="post-date">
+    <time>14 Dec 2016</time>
+  </span>
+  <div class="post-tag">
+    <ul>
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#data principles" class="tag">
+          <span class="term">data principles</span>
+        </a>
+      </li>
+      
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#data architecture" class="tag">
+          <span class="term">data architecture</span>
+        </a>
+      </li>
+      
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#reconciliation" class="tag">
+          <span class="term">reconciliation</span>
+        </a>
+      </li>
+      
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#completeness" class="tag">
+          <span class="term">completeness</span>
+        </a>
+      </li>
+      
+      
+      <li>
+        <a href="http://localhost:4000/blog/tags#accuracy" class="tag">
+          <span class="term">accuracy</span>
+        </a>
+      </li>
+      
+      
+    </ul>
+  </div>
+
+  <p>In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy.</p>
+
+<h3 id="completeness">Completeness</h3>
+
+<p>Let’s look at an example flow…
+<img src="../../images/caa1.png" alt="" />
+It’s important to realise that ‘truth’ can’t exist in isolation, but can only exist at the points of interaction with the outside world (with suitable processes for both sides to bilaterally agree on the truth).</p>
+
+<p>As data flows in and down through the organisation, it may branch. These are filter points - the places where data items can get lost. The point immediately upstream of all branches, the last point of completeness is a key juncture in a given flow.
+<img src="../../images/caa2.png" alt="" />
+Also the point where the outside world is again interacted with again, the exit point is again key. Once we have these points, it’s clear what reconciliations are needed between the two internal points of truth (and to the outside world to establish truth at the boundaries).</p>
+
+<p>This is how we get to completeness.</p>
+
+<h3 id="accuracy">Accuracy</h3>
+
+<p>Accuracy is maybe a little bit harder. As data flows between the last point of completeness and the exit point, it will typically be transformed multiple times by the systems that it passes through.
+Some transformations are format transformations only, some are enrichments and some are inherently lossy.
+How do you know that the data you got out the end is the same that was put in the top?</p>
+
+<p>A couple of different approaches may help.
+<img src="../../images/caa3.png" alt="" />
+In the picture, the yellow arrows indicate data transformations.</p>
+
+<p>The first is to verify that the output is the same as the input by doing a backwards transformation (as part of reconciliation 2 from the previous picture). Since some of the transformations will involve looking up one field in data environment, we need to ‘gather’ that data environment as the data flows down and make it (immutably) available to backwards transformation.
+This is why having any systems that supply part of the data environment as immutable is such a good idea - it’s now possible to make definite statements by reversing out the look up replacements that were done as the data flowed down.</p>
+
+<p>Of course some lookups are lossy. For example, if you can had the specific model of a car and from that looked up and replaced with the brand. In that case the reverse transformation can only get back to a range of possible alternatives. With several transformations, the set of permutations can quickly grow very large.</p>
+
+<p>The second approach builds on the first by as well as gathering the immutable data environment on the downward pass, also make the data item in flow immutable. Whenever a transformation occurs, no mutation in place is allowed only the creation of new versions.
+Now we have the ability to simplify the backwards transformation, by examining it step by step. By doing so, we don’t have a huge set of permutations to deal with as for the end to end approach, but it become much more controllable and easier to inspect.</p>
+
+
+
+
+  <!-- Share -->
+  
+  <div class="post-share">
+    <hr>
+    <span>Share this: <br /></span>
+<a href="https://www.facebook.com/sharer/sharer.php?u=http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-facebook"></a>
+<a href="https://twitter.com/intent/tweet?text=Principles of completeness and accuracy&url=http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-twitter"></a>
+<a href="https://plus.google.com/share?url=http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-google-plus"></a>
+<a href="https://www.tumblr.com/share?url=http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" onclick="window.open(this.href, 'mywin',
+'left=20,top=20,width=500,height=500,toolbar=1,resizable=0'); return false;" class="ssk ssk-icon ssk-tumblr"></a>
+<a href="mailto:?subject=Principles of completeness and accuracy&amp;body=Check out this site http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/" class="ssk ssk-icon ssk-email"></a>
+
+    <hr>
+  </div>
+  
+
+  <!-- Disqus -->
+  
+  <section id="disqus_thread"></section>
+  <script>
+
+/**
+*  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+*  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables */
+/*
+var disqus_config = function () {
+this.page.url = PAGE_URL;  // Replace PAGE_URL with your page's canonical URL variable
+this.page.identifier = PAGE_IDENTIFIER; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+};
+*/
+(function() { // DON'T EDIT BELOW THIS LINE
+var d = document, s = d.createElement('script');
+s.src = '//https-judepayne-github-io-blog.disqus.com/embed.js';
+s.setAttribute('data-timestamp', +new Date());
+(d.head || d.body).appendChild(s);
+})();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+
+  
+
+</div>
+
+
+    <!-- Documents about icons are here: http://fontawesome.io/icons/ -->
+<div class="footer">
+	<hr />
+	<div class="footer-link">
+		
+
+		
+
+		
+		<a href="https://github.com/judepayne"><i class="fa fa-github" aria-hidden="true"></i></a>
+		
+
+		
+		<a href="https://www.linkedin.com/in/jude-payne-16576114"><i class="fa fa-linkedin" aria-hidden="true"></i></a>
+		
+
+		
+
+		
+
+		
+		<a href="mailto:judepayne@yahoo.co.uk"><i class="fa fa-envelope" aria-hidden="true"></i></a>
+		
+
+	</div>
+	© 2016 Jude Payne. All rights reserved.
+</div>
+
+  </div>
+</body>
+</html>

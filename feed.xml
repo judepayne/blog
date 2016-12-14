@@ -6,6 +6,46 @@
 		<atom:link href="http://localhost:4000/blog/feed.xml" rel="self" type="application/rss+xml" />
 		
 			<item>
+				<title>Principles of completeness and accuracy</title>
+				<description>&lt;p&gt;In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy.&lt;/p&gt;
+
+&lt;h3 id=&quot;completeness&quot;&gt;Completeness&lt;/h3&gt;
+
+&lt;p&gt;Let’s look at an example flow…
+&lt;img src=&quot;../../images/caa1.png&quot; alt=&quot;&quot; /&gt;
+It’s important to realise that ‘truth’ can’t exist in isolation, but can only exist at the points of interaction with the outside world (with suitable processes for both sides to bilaterally agree on the truth).&lt;/p&gt;
+
+&lt;p&gt;As data flows in and down through the organisation, it may branch. These are filter points - the places where data items can get lost. The point immediately upstream of all branches, the last point of completeness is a key juncture in a given flow.
+&lt;img src=&quot;../../images/caa2.png&quot; alt=&quot;&quot; /&gt;
+Also the point where the outside world is again interacted with again, the exit point is again key. Once we have these points, it’s clear what reconciliations are needed between the two internal points of truth (and to the outside world to establish truth at the boundaries).&lt;/p&gt;
+
+&lt;p&gt;This is how we get to completeness.&lt;/p&gt;
+
+&lt;h3 id=&quot;accuracy&quot;&gt;Accuracy&lt;/h3&gt;
+
+&lt;p&gt;Accuracy is maybe a little bit harder. As data flows between the last point of completeness and the exit point, it will typically be transformed multiple times by the systems that it passes through.
+Some transformations are format transformations only, some are enrichments and some are inherently lossy.
+How do you know that the data you got out the end is the same that was put in the top?&lt;/p&gt;
+
+&lt;p&gt;A couple of different approaches may help.
+&lt;img src=&quot;../../images/caa3.png&quot; alt=&quot;&quot; /&gt;
+In the picture, the yellow arrows indicate data transformations.&lt;/p&gt;
+
+&lt;p&gt;The first is to verify that the output is the same as the input by doing a backwards transformation (as part of reconciliation 2 from the previous picture). Since some of the transformations will involve looking up one field in data environment, we need to ‘gather’ that data environment as the data flows down and make it (immutably) available to backwards transformation.
+This is why having any systems that supply part of the data environment as immutable is such a good idea - it’s now possible to make definite statements by reversing out the look up replacements that were done as the data flowed down.&lt;/p&gt;
+
+&lt;p&gt;Of course some lookups are lossy. For example, if you can had the specific model of a car and from that looked up and replaced with the brand. In that case the reverse transformation can only get back to a range of possible alternatives. With several transformations, the set of permutations can quickly grow very large.&lt;/p&gt;
+
+&lt;p&gt;The second approach builds on the first by as well as gathering the immutable data environment on the downward pass, also make the data item in flow immutable. Whenever a transformation occurs, no mutation in place is allowed only the creation of new versions.
+Now we have the ability to simplify the backwards transformation, by examining it step by step. By doing so, we don’t have a huge set of permutations to deal with as for the end to end approach, but it become much more controllable and easier to inspect.&lt;/p&gt;
+
+</description>
+				<pubDate>Wed, 14 Dec 2016 21:46:04 +0000</pubDate>
+				<link>http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/</link>
+				<guid isPermaLink="true">http://localhost:4000/blog/2016-12-14/Principles-of-completeness-and-accuracy/</guid>
+			</item>
+		
+			<item>
 				<title>A re-order buffer in Clojure</title>
 				<description>&lt;p&gt;A re-order buffer caches incoming items and releases them in chunks according to a (usually) time based sort order.
 Its role is to act as a stage in a data/ event flow to ensure that some downstream function receives events in the right order more of the time.&lt;/p&gt;
