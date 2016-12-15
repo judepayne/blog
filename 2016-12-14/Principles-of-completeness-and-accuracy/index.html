@@ -17,8 +17,8 @@
   <!-- Begin Jekyll SEO tag v2.1.0 -->
 <title>Principles of completeness and accuracy - Afunctional blog</title>
 <meta property="og:title" content="Principles of completeness and accuracy" />
-<meta name="description" content="In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy." />
-<meta property="og:description" content="In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy." />
+<meta name="description" content="When looking at putting proper controls around a data flow within an organisation, we are often asked to honour ‘The Prinnciples of completeness and Accuracy’. When there are several or many systems involved in the data flow, it’s often difficult to see how to achieve that." />
+<meta property="og:description" content="When looking at putting proper controls around a data flow within an organisation, we are often asked to honour ‘The Prinnciples of completeness and Accuracy’. When there are several or many systems involved in the data flow, it’s often difficult to see how to achieve that." />
 <link rel="canonical" href="https://judepayne.github.io/blog/2016-12-14/Principles-of-completeness-and-accuracy/" />
 <meta property="og:url" content="https://judepayne.github.io/blog/2016-12-14/Principles-of-completeness-and-accuracy/" />
 <meta property="og:site_name" content="Afunctional blog" />
@@ -29,7 +29,7 @@
 "@type": "BlogPosting",
 "headline": "Principles of completeness and accuracy",
 "datePublished": "2016-12-14T21:46:04+00:00",
-"description": "In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy.",
+"description": "When looking at putting proper controls around a data flow within an organisation, we are often asked to honour ‘The Prinnciples of completeness and Accuracy’. When there are several or many systems involved in the data flow, it’s often difficult to see how to achieve that.",
 "url": "https://judepayne.github.io/blog/2016-12-14/Principles-of-completeness-and-accuracy/"}</script>
 <!-- End Jekyll SEO tag -->
 
@@ -105,9 +105,12 @@ ga('send', 'pageview');
     </ul>
   </div>
 
-  <p>In a data flow through an organisation especially with many inter-system hops along the way, it’s often difficult to see how to achieve completeness and accuracy.</p>
+  <p>When looking at putting proper controls around a data flow within an organisation, we are often asked to honour ‘The Prinnciples of completeness and Accuracy’.
+When there are several or many systems involved in the data flow, it’s often difficult to see how to achieve that.</p>
 
 <h3 id="completeness">Completeness</h3>
+
+<p>..means that the data set at the end point of the flow is the expected subset of the data set at the start of the flow. Subset because items may be filtered or diverted into other flows for legitimate reasons.</p>
 
 <p>Let’s look at an example flow…
 <img src="../../images/caa1.png" alt="" />
@@ -121,22 +124,26 @@ Also the point where the outside world is again interacted with again, the exit 
 
 <h3 id="accuracy">Accuracy</h3>
 
-<p>Accuracy is maybe a little bit harder. As data flows between the last point of completeness and the exit point, it will typically be transformed multiple times by the systems that it passes through.
+<p>.. means that for the expected subset at the end of the flow, each item has been transformed along the way as we would have expected.</p>
+
+<p>It’s a little bit harder to see how to achieve this. As data flows between the last point of completeness and the exit point, it will typically be transformed multiple times by the systems that it passes through.
 Some transformations are format transformations only, some are enrichments and some are inherently lossy.
 How do you know that the data you got out the end is the same that was put in the top?</p>
 
-<p>A couple of different approaches may help.
+<p>This approach may help..
 <img src="../../images/caa3.png" alt="" />
 In the picture, the yellow arrows indicate data transformations.</p>
 
-<p>The first is to verify that the output is the same as the input by doing a backwards transformation (as part of reconciliation 2 from the previous picture). Since some of the transformations will involve looking up one field in data environment, we need to ‘gather’ that data environment as the data flows down and make it (immutably) available to backwards transformation.
+<p>The core approach is to verify that the output is the same as the input by doing a backwards transformation (as part of reconciliation 2 from the previous picture). Since some of the transformations will involve looking up one field in data environment, we need to ‘gather’ that data environment as the data flows down and make it (immutably) available to backwards transformation.
 This is why having any systems that supply part of the data environment as immutable is such a good idea - it’s now possible to make definite statements by reversing out the look up replacements that were done as the data flowed down.</p>
 
-<p>Of course some lookups are lossy. For example, if you can had the specific model of a car and from that looked up and replaced with the brand. In that case the reverse transformation can only get back to a range of possible alternatives. With several transformations, the set of permutations can quickly grow very large.</p>
+<p>To be a technical for a moment, the pattern of collecting an immutable data environment and then chain a series of transformation functions that use that environment, and only that environment to support some of the transformations, has a name in programming - the Reader Monad - and will be familiar to anyone who has ever dabbled in writing a compiler, for example.</p>
 
-<p>The second approach builds on the first by as well as gathering the immutable data environment on the downward pass, also make the data item in flow immutable. Whenever a transformation occurs, no mutation in place is allowed only the creation of new versions.
-Now we have the ability to simplify the backwards transformation, by examining it step by step. By doing so, we don’t have a huge set of permutations to deal with as for the end to end approach, but it become much more controllable and easier to inspect.</p>
+<p>Of course some lookups are inherently lossy. For example, if you can had the specific model of a car and from that looked up and replaced with the brand. In that case the reverse transformation can only get back to a range of possible alternatives. With several transformations, the set of permutations can quickly grow very large.</p>
 
+<p>A way of controlling the permutations is to be able to examine each transformation stage one at a time as you run them backwards. If we make the each data item in flow, immutable - so no mutable in place is allowed, only the appending of new versions, that the set of possible starting values will be smaller at each stage. In this approach, validating that the item at stage i, could possibly have come from stage i-1 is simpler. The ability to reverse out the transformations step by step also allows for easier diagnosis of something that went wrong.</p>
+
+<p>In the picture, I termed the backwards transformation as ‘reference’. What this means is that this piece of code is not the same piece of code as forwards transformers. It may be written by a separate team and serves that an independent check that the forwards transformations are in fact, correct.</p>
 
 
 
